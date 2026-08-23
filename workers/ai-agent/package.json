@@ -1,0 +1,29 @@
+{
+  "name": "hypertrade-ai-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant AI trading agent worker for HyperTrade (see docs/AI_AGENTS.md)",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "prove:agent-send-asset": "tsx --env-file=.env spikes/prove-agent-send-asset/prove.ts"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "^0.32.2",
+    "@supabase/supabase-js": "^2.49.4",
+    "p-limit": "^6.2.0",
+    "viem": "2.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

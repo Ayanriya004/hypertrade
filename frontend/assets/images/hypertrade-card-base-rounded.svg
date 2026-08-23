@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 860 540" width="860" height="540" role="img">
+  <title>HyperTrade Mastercard</title>
+  <desc>HyperTrade branded Mastercard credit card template</desc>
+  <defs>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0E1628"/>
+      <stop offset="100%" stop-color="#0A0E20"/>
+    </linearGradient>
+
+    <!-- Ambient glows -->
+    <radialGradient id="cyanGlow" cx="12%" cy="18%" r="50%">
+      <stop offset="0%" stop-color="#00C8FF" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#00C8FF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="purpleGlow" cx="88%" cy="82%" r="50%">
+      <stop offset="0%" stop-color="#8B5CF6" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Perimeter: horizontal color gradient (cyan left → purple right) -->
+    <linearGradient id="hGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#4BC8F0"/>
+      <stop offset="100%" stop-color="#9B5BE0"/>
+    </linearGradient>
+    <!-- Perimeter: vertical color gradient (cyan top → purple bottom) -->
+    <linearGradient id="vGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#4BC8F0"/>
+      <stop offset="100%" stop-color="#9B5BE0"/>
+    </linearGradient>
+
+    <!-- Top inner glow: fades downward (transparent at bottom) -->
+    <linearGradient id="topGlowFade" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#7BE0F4" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#7BE0F4" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Bottom inner glow: fades upward -->
+    <linearGradient id="btmGlowFade" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%"   stop-color="#9B6FE0" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#9B6FE0" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Left inner glow: fades rightward -->
+    <linearGradient id="leftGlowFade" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#4BC8F0" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#4BC8F0" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Right inner glow: fades leftward -->
+    <linearGradient id="rightGlowFade" x1="100%" y1="0%" x2="0%" y2="0%">
+      <stop offset="0%"   stop-color="#9B5BE0" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#9B5BE0" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Corner radial glows -->
+    <radialGradient id="cornerTL" cx="0%" cy="0%" r="100%">
+      <stop offset="0%"   stop-color="#4BC8F0" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#4BC8F0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cornerTR" cx="100%" cy="0%" r="100%">
+      <stop offset="0%"   stop-color="#9B5BE0" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#9B5BE0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cornerBL" cx="0%" cy="100%" r="100%">
+      <stop offset="0%"   stop-color="#4BC8F0" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#4BC8F0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cornerBR" cx="100%" cy="100%" r="100%">
+      <stop offset="0%"   stop-color="#9B5BE0" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#9B5BE0" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Chip & chip shine -->
+    <linearGradient id="chipMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#C8A84B"/>
+      <stop offset="50%"  stop-color="#E8D080"/>
+      <stop offset="100%" stop-color="#B89038"/>
+    </linearGradient>
+    <linearGradient id="chipShine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#F5E8A0" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#C8A840" stop-opacity="0.25"/>
+    </linearGradient>
+
+    <!-- Mastercard -->
+    <radialGradient id="mcRed" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#FF4444"/>
+      <stop offset="100%" stop-color="#CC0000"/>
+    </radialGradient>
+    <radialGradient id="mcOrange" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#FFB800"/>
+      <stop offset="100%" stop-color="#FF8C00"/>
+    </radialGradient>
+
+    <!-- Diagonal frost band -->
+    <linearGradient id="frostBand" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#4BC8F0" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#9B5BE0" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <clipPath id="cardClip">
+      <rect x="0" y="0" width="860" height="540" rx="40" ry="40"/>
+    </clipPath>
+
+    <!-- Perimeter stroke gradient: top strong → sides mid → bottom subtle -->
+    <linearGradient id="perimStroke" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%"   stop-color="#4BC8F0" stop-opacity="0.90"/>
+      <stop offset="50%"  stop-color="#7B9EFF" stop-opacity="0.40"/>
+      <stop offset="100%" stop-color="#9B5BE0" stop-opacity="0.25"/>
+    </linearGradient>
+
+    <!-- Dark border gradient -->
+    <linearGradient id="metallicEdge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#2A2E3E" stop-opacity="0.90"/>
+      <stop offset="35%"  stop-color="#3C4256" stop-opacity="0.75"/>
+      <stop offset="65%"  stop-color="#252838" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#1E2130" stop-opacity="0.90"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#cardClip)">
+
+    <!-- === BASE === -->
+    <rect x="0" y="0" width="860" height="540" fill="url(#cardBg)"/>
+
+    <!-- === CONCENTRIC RINGS (centered on card) === -->
+    <ellipse cx="430" cy="270" rx="90"  ry="72"  fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.30"/>
+    <ellipse cx="430" cy="270" rx="135" ry="108" fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.34"/>
+    <ellipse cx="430" cy="270" rx="182" ry="146" fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.37"/>
+    <ellipse cx="430" cy="270" rx="230" ry="184" fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.36"/>
+    <ellipse cx="430" cy="270" rx="280" ry="224" fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.32"/>
+    <ellipse cx="430" cy="270" rx="335" ry="268" fill="none" stroke="#1E3055" stroke-width="0.7" opacity="0.25"/>
+    <ellipse cx="430" cy="270" rx="395" ry="316" fill="none" stroke="#1E3055" stroke-width="0.6" opacity="0.18"/>
+
+    <!-- === CENTRE AMBIENT GLOWS === -->
+    <rect x="0" y="0" width="860" height="540" fill="url(#cyanGlow)"/>
+    <rect x="0" y="0" width="860" height="540" fill="url(#purpleGlow)"/>
+
+    <!-- === DIAGONAL FROST BAND === -->
+    <rect x="-100" y="205" width="1060" height="110" fill="url(#frostBand)" transform="rotate(-7 430 260)"/>
+
+
+    <!-- Metallic rounded border (inset so stroke stays inside clip) -->
+    <rect x="2" y="2" width="856" height="536" rx="38" ry="38"
+          fill="none" stroke="url(#metallicEdge)" stroke-width="1.6"/>
+
+  </g>
+</svg>

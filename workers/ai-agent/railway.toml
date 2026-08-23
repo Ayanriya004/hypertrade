@@ -1,0 +1,9 @@
+# Service-specific Railway config for ai-agent-worker.
+# Overrides the repo-root railway.toml (which targets backend/Dockerfile).
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Background worker — no HTTP server or health endpoint.
+startCommand = "node dist/index.js"

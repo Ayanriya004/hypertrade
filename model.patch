@@ -1,0 +1,69 @@
+diff --git a/model.patch b/model.patch
+index 1457ffc..e69de29 100644
+--- a/model.patch
++++ b/model.patch
+@@ -1,64 +0,0 @@
+-diff --git a/test_result.md b/test_result.md
+-index ad5913e..25680b6 100644
+---- a/test_result.md
+-+++ b/test_result.md
+-@@ -116,6 +116,9 @@ backend:
+-       - working: true
+-         agent: "main"
+-         comment: "GET /api/health returns healthy status"
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "✅ VERIFIED: Health endpoint returns 200 with {status: healthy, service: hypertrade-api}"
+- 
+-   - task: "Fetch HIP-3 assets with live prices"
+-     implemented: true
+-@@ -128,6 +131,9 @@ backend:
+-       - working: true
+-         agent: "main"
+-         comment: "GET /api/assets returns 31 RWA assets from Hyperliquid xyz dex with live prices including GOLD, TSLA, NVDA, AAPL, SILVER"
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "✅ VERIFIED: Assets endpoint returns 31 HIP-3 RWA assets with all required fields (coin, name, symbol, category, maxLeverage, markPx, change24h). Found all expected assets: GOLD, SILVER, TSLA, NVDA, AAPL. GOLD correctly has maxLeverage of 20."
+- 
+-   - task: "Fetch asset detail"
+-     implemented: true
+-@@ -140,6 +146,9 @@ backend:
+-       - working: true
+-         agent: "main"
+-         comment: "GET /api/assets/{coin} returns detailed asset info with oracle price, funding rate, etc."
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "✅ VERIFIED: Asset detail endpoint works correctly with xyz:GOLD, returns detailed info including name (Gold), price (4599.6), maxLeverage (20), and all required fields"
+- 
+-   - task: "Fetch candlestick data"
+-     implemented: true
+-@@ -152,6 +161,9 @@ backend:
+-       - working: true
+-         agent: "main"
+-         comment: "GET /api/candles/{coin} returns OHLCV data for charts"
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "✅ VERIFIED: Candles endpoint returns 21 candles for xyz:GOLD with 1h interval, all candles have required OHLCV fields (t, o, h, l, c, v)"
+- 
+-   - task: "Builder config endpoint"
+-     implemented: true
+-@@ -164,6 +176,9 @@ backend:
+-       - working: true
+-         agent: "main"
+-         comment: "GET /api/builder-config returns builder address and fee for trades"
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "✅ VERIFIED: Builder config returns correct address (0x29a1D36DaEE6B0E0Dd4873dd964677000B6e23EB) and fee (100)"
+- 
+- frontend:
+-   - task: "Market Dashboard with asset list"
+-@@ -241,4 +256,6 @@ test_plan:
+- 
+- agent_communication:
+-   - agent: "main"
+--    message: "MVP Phase 1 complete. Market Dashboard shows 31 live HIP-3 assets from Hyperliquid. Asset detail page with candlestick chart working. Ready for Phase 2 (Privy auth, trading)."
+-\ No newline at end of file
+-+    message: "MVP Phase 1 complete. Market Dashboard shows 31 live HIP-3 assets from Hyperliquid. Asset detail page with candlestick chart working. Ready for Phase 2 (Privy auth, trading)."
+-+  - agent: "testing"
+-+    message: "✅ BACKEND TESTING COMPLETE: All 5 API endpoints tested and working perfectly. Health check (200 OK), Assets list (31 HIP-3 RWA assets with live prices), Asset detail (xyz:GOLD with correct data), Candles (OHLCV data), Builder config (correct address/fee). Hyperliquid integration is fully functional. Backend API is production-ready."
+-\ No newline at end of file

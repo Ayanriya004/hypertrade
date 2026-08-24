@@ -32,7 +32,6 @@ import { useAppStore } from '../src/store/appStore';
 import { PortfolioTabs } from '../src/components/PortfolioTabs';
 import { TradingBookSwitcher } from '../src/components/TradingBookSwitcher';
 import { PortfolioBalanceCardSkeleton } from '../src/components/skeleton/PortfolioBalanceCardSkeleton';
-import { PortfolioSummaryCardsSkeleton } from '../src/components/skeleton/PortfolioSummaryCardsSkeleton';
 import { TweenedStatText } from '../src/components/TweenedStatText';
 import { BouncingDots } from '../src/components/BouncingDots';
 import { useClaimBannerTopInset, useTopStripContentHeight } from '../src/components/ClaimTradingCreditBanner';
@@ -47,6 +46,10 @@ import {
   getActiveAssetData,
   getHistoricalPnlTimeseries,
   getUserPortfolioSummary,
+  getUserDepositWithdrawalHistory,
+  netInternalCapitalInflowUsd,
+  lastPnlHistoryValue,
+  windowPnlHistoryDelta,
   getHyperliquidTradingState,
   getOpenOrders,
   mergeRestAndStreamOpenOrders,
@@ -306,28 +309,28 @@ export default function PortfolioScreen() {
     refetchInterval: 30_000,
   });
 
-  const { data: pnlTimeseriesUser, isFetching: pnlTimeseriesUserFetching } = useQuery({
+  const { data: pnlTimeseriesUser, isPending: pnlTimeseriesUserPending } = useQuery({
     queryKey: ['hl_pnl_timeseries', userPortfolioAddress],
     queryFn: () => getHistoricalPnlTimeseries(userPortfolioAddress as `0x${string}`),
     enabled: !!userPortfolioAddress && isAuthenticated,
     refetchInterval: 60000,
   });
 
-  const { data: pnlTimeseriesEmbedded, isFetching: pnlTimeseriesEmbeddedFetching } = useQuery({
+  const { data: pnlTimeseriesEmbedded, isPending: pnlTimeseriesEmbeddedPending } = useQuery({
     queryKey: ['hl_pnl_timeseries', embeddedPortfolioAddress],
     queryFn: () => getHistoricalPnlTimeseries(embeddedPortfolioAddress as `0x${string}`),
     enabled: !!embeddedPortfolioAddress && isAuthenticated && embeddedPortfolioAddress !== userPortfolioAddress,
     refetchInterval: 60000,
   });
 
-  const { data: portfolioSummaryUser, isFetching: portfolioSummaryUserFetching } = useQuery({
+  const { data: portfolioSummaryUser, isPending: portfolioSummaryUserPending } = useQuery({
     queryKey: ['hl_portfolio_summary', userPortfolioAddress],
     queryFn: () => getUserPortfolioSummary(userPortfolioAddress as `0x${string}`),
     enabled: !!userPortfolioAddress && isAuthenticated,
     refetchInterval: 60000,
   });
 
-  const { data: portfolioSummaryEmbedded, isFetching: portfolioSummaryEmbeddedFetching } = useQuery({
+  const { data: portfolioSummaryEmbedded, isPending: portfolioSummaryEmbeddedPending } = useQuery({
     queryKey: ['hl_portfolio_summary', embeddedPortfolioAddress],
     queryFn: () => getUserPortfolioSummary(embeddedPortfolioAddress as `0x${string}`),
     enabled: !!embeddedPortfolioAddress && isAuthenticated && embeddedPortfolioAddress !== userPortfolioAddress,
@@ -351,7 +354,7 @@ export default function PortfolioScreen() {
     refetchInterval: hlWsLive ? 60_000 : 8_000,
   });
 
-  const { data: dedicatedPnlTimeseries, isFetching: dedicatedPnlFetching } = useQuery({
+  const { data: dedicatedPnlTimeseries, isFetching: dedicatedPnlFetching, isPending: dedicatedPnlPending } = useQuery({
     queryKey: ['hl_pnl_timeseries', viewAddress, 'dedicated_book'],
     queryFn: () => getHistoricalPnlTimeseries(viewAddress),
     enabled: isDedicatedBook && !!viewAddress && isAuthenticated,
@@ -359,12 +362,25 @@ export default function PortfolioScreen() {
     placeholderData: keepPreviousData,
   });
 
-  const { data: dedicatedPortfolioSummary, isFetching: dedicatedSummaryFetching } = useQuery({
+  const { data: dedicatedPortfolioSummary, isFetching: dedicatedSummaryFetching, isPending: dedicatedSummaryPending } = useQuery({
     queryKey: ['hl_portfolio_summary', viewAddress, 'dedicated_book'],
     queryFn: () => getUserPortfolioSummary(viewAddress),
     enabled: isDedicatedBook && !!viewAddress && isAuthenticated,
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
+  });
+
+  // Ledger used to strip Dedicated↔Main sendAsset out of Net PnL.
+  // One fetch per book address, no interval — transfers are rare; we
+  // filter the window in memory. Same cache key as deposit-withdraw history.
+  const { data: capitalLedger } = useQuery({
+    queryKey: ['hl_deposit_withdraw_history', viewAddress],
+    queryFn: () => getUserDepositWithdrawalHistory(viewAddress),
+    enabled:
+      !!viewAddress &&
+      isAuthenticated &&
+      (isDedicatedBook || dedicatedBooks.length > 0),
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: spotMetaData } = useQuery({
@@ -795,31 +811,42 @@ export default function PortfolioScreen() {
   }, [pnlTimeseries, selectedPeriod]);
   
   const selectedPnl = useMemo(() => {
-    // IMPORTANT: We use pnlHistory (pure trading PnL) NOT accountValueHistory
-    // pnlHistory excludes deposits/withdrawals and only reflects trading performance
-    // For "allTime", the last value in pnlHistory should be the total cumulative PnL from account creation
-    
-    // --- HL PnL ---
+    // HL `pnlHistory` is accountValue + deposits − withdrawals (see portfolio-graphs
+    // docs). It is NOT pure trading PnL: Dedicated↔Main sendAsset is an internal
+    // transfer, so it shows up here. We take the period delta then subtract those
+    // inflows.
     let hlPnl: number | null = null;
+    let windowStartMs = 0;
+    let windowEndMs = Date.now();
     if (selectedPeriod === 'allTime') {
       const allTimeHistory = pnlTimeseries?.allTime?.pnlHistory ?? [];
-      if (allTimeHistory.length > 0) {
-        const last = allTimeHistory[allTimeHistory.length - 1]?.[1];
-        const val = typeof last === 'string' ? parseFloat(last) : typeof last === 'number' ? last : NaN;
-        if (Number.isFinite(val)) hlPnl = val;
-      }
+      hlPnl = lastPnlHistoryValue(allTimeHistory);
       if (hlPnl === null && portfolioSummary?.allTimePnl != null) {
         hlPnl = portfolioSummary.allTimePnl;
       }
+      const t0 = Number(allTimeHistory[0]?.[0]);
+      if (Number.isFinite(t0) && t0 > 0) windowStartMs = t0;
     } else {
       const history = selectedEntry?.pnlHistory ?? [];
-      const last = history.length ? history[history.length - 1]?.[1] : null;
-      const val = typeof last === 'string' ? parseFloat(last) : typeof last === 'number' ? last : NaN;
-      if (Number.isFinite(val)) hlPnl = val;
+      hlPnl = windowPnlHistoryDelta(history);
+      const t0 = Number(history[0]?.[0]);
+      const t1 = Number(history[history.length - 1]?.[0]);
+      if (Number.isFinite(t0) && t0 > 0) windowStartMs = t0;
+      if (Number.isFinite(t1) && t1 > 0) windowEndMs = t1;
     }
 
-    return hlPnl;
-  }, [portfolioSummary?.allTimePnl, selectedEntry, selectedPeriod, pnlTimeseries?.allTime]);
+    if (hlPnl == null || !viewAddress) return hlPnl;
+    const inflow = netInternalCapitalInflowUsd(capitalLedger, viewAddress, windowStartMs, windowEndMs);
+    if (!Number.isFinite(inflow) || inflow === 0) return hlPnl;
+    return hlPnl - inflow;
+  }, [
+    portfolioSummary?.allTimePnl,
+    selectedEntry,
+    selectedPeriod,
+    pnlTimeseries?.allTime,
+    capitalLedger,
+    viewAddress,
+  ]);
 
   const selectedVolume = useMemo(() => {
     // --- HL Volume ---
@@ -835,12 +862,9 @@ export default function PortfolioScreen() {
     return hlVlm;
   }, [portfolioSummary?.allTimeVlm, selectedEntry, selectedPeriod]);
 
-  // Show a branded loader in the Performance cards on first load instead of
-  // a dashed placeholder. "Loading" here means: we're authenticated, we have
-  // an address to query, and the underlying HL queries haven't delivered any
-  // payload yet. Once data arrives (even if the user has no trades and the
-  // values end up null / $0), we fall back to the normal `--` / formatted
-  // output so the cards don't spin forever for brand-new accounts.
+  // Show a branded loader on the balance card on first load instead of
+  // a dashed placeholder. First visit only — book switches keep the card
+  // and swap just the $ rows.
   const isBalanceCardLoading = useMemo(() => {
     if (!isAuthenticated) return false;
     if (!viewAddress) return false;
@@ -849,40 +873,41 @@ export default function PortfolioScreen() {
     return !tradingStateReady;
   }, [isAuthenticated, viewAddress, figuresBookKey, tradingStateReady]);
 
-  const isPerfLoading = useMemo(() => {
+  // Net PnL / Total Vol: keep the cards mounted and bounce the value slots
+  // until the HL queries have actually settled. Jumping in from home often
+  // has trading-state cache (so the old full-card skeleton never shows) while
+  // portfolio summary/timeseries are still in flight — that used to paint `--`.
+  const perfQueriesPending = useMemo(() => {
     if (!isAuthenticated) return false;
-    // First visit only. Book switches keep the PnL/volume cards mounted so
-    // the row doesn't swap to skeleton (that was the screen "shake").
-    if (figuresBookKey != null) return false;
     if (isDedicatedBook) {
-      if (!viewAddress) return false;
-      if (pnlTimeseries || portfolioSummary) return false;
-      return dedicatedPnlFetching || dedicatedSummaryFetching;
+      if (!viewAddress) return true;
+      return dedicatedPnlPending || dedicatedSummaryPending;
     }
-    if (!userPortfolioAddress && !embeddedPortfolioAddress) return false;
-    if (pnlTimeseries || portfolioSummary) return false;
-    return (
-      pnlTimeseriesUserFetching ||
-      pnlTimeseriesEmbeddedFetching ||
-      portfolioSummaryUserFetching ||
-      portfolioSummaryEmbeddedFetching
-    );
+    const hasUser = !!userPortfolioAddress;
+    const embEnabled =
+      !!embeddedPortfolioAddress && embeddedPortfolioAddress !== userPortfolioAddress;
+    if (!hasUser && !embEnabled) return true;
+    const userPending = hasUser && (pnlTimeseriesUserPending || portfolioSummaryUserPending);
+    const embPending = embEnabled && (pnlTimeseriesEmbeddedPending || portfolioSummaryEmbeddedPending);
+    return userPending || embPending;
   }, [
     isAuthenticated,
-    figuresBookKey,
     isDedicatedBook,
     viewAddress,
-    dedicatedPnlFetching,
-    dedicatedSummaryFetching,
+    dedicatedPnlPending,
+    dedicatedSummaryPending,
     userPortfolioAddress,
     embeddedPortfolioAddress,
-    pnlTimeseries,
-    portfolioSummary,
-    pnlTimeseriesUserFetching,
-    pnlTimeseriesEmbeddedFetching,
-    portfolioSummaryUserFetching,
-    portfolioSummaryEmbeddedFetching,
+    pnlTimeseriesUserPending,
+    portfolioSummaryUserPending,
+    pnlTimeseriesEmbeddedPending,
+    portfolioSummaryEmbeddedPending,
   ]);
+
+  const showNetPnlDots =
+    perfQueriesPending && (selectedPnl == null || !Number.isFinite(selectedPnl));
+  const showVolDots =
+    perfQueriesPending && (selectedVolume == null || !Number.isFinite(selectedVolume));
 
   const formatSignedUsd = useCallback((n: number): string => {
     if (!Number.isFinite(n)) return '--';
@@ -1965,9 +1990,6 @@ export default function PortfolioScreen() {
           ))}
         </View>
 
-        {isPerfLoading ? (
-          <PortfolioSummaryCardsSkeleton />
-        ) : (
         <View style={styles.summaryRow}>
           <LinearGradient
             colors={['#1a1a2e', '#16213e', '#0f0f1a']}
@@ -1976,15 +1998,23 @@ export default function PortfolioScreen() {
             style={styles.summaryCard}
           >
             <Text style={styles.summaryLabel}>{t('portfolio.netPnl')}</Text>
-            <TweenedStatText
-              value={selectedPnl}
-              format={formatPnlSummary}
-              animationKey={selectedPeriod}
-              style={[styles.summaryValue, { color: selectedPnl !== null && selectedPnl >= 0 ? colors.status.success : colors.status.error }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            />
+            <View style={styles.summaryValueSlot}>
+              {showNetPnlDots ? (
+                <BouncingDots color={colors.text.tertiary} dotSize={5} pulse style={styles.figureDots} />
+              ) : (
+                <TweenedStatText
+                  value={selectedPnl}
+                  format={formatPnlSummary}
+                  animationKey={selectedPeriod}
+                  animateOnMount
+                  mountDurationMs={700}
+                  style={[styles.summaryValue, { color: selectedPnl !== null && selectedPnl >= 0 ? colors.status.success : colors.status.error }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                />
+              )}
+            </View>
           </LinearGradient>
           <LinearGradient
             colors={['#1a1a2e', '#16213e', '#0f0f1a']}
@@ -1993,18 +2023,25 @@ export default function PortfolioScreen() {
             style={styles.summaryCard}
           >
             <Text style={styles.summaryLabel}>{t('portfolio.totalVolume')}</Text>
-            <TweenedStatText
-              value={selectedVolume}
-              format={formatVolumeNumber}
-              animationKey={selectedPeriod}
-              style={styles.summaryValue}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            />
+            <View style={styles.summaryValueSlot}>
+              {showVolDots ? (
+                <BouncingDots color={colors.text.tertiary} dotSize={5} pulse style={styles.figureDots} />
+              ) : (
+                <TweenedStatText
+                  value={selectedVolume}
+                  format={formatVolumeNumber}
+                  animationKey={selectedPeriod}
+                  animateOnMount
+                  mountDurationMs={700}
+                  style={styles.summaryValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                />
+              )}
+            </View>
           </LinearGradient>
         </View>
-        )}
 
         <View style={styles.sectionDivider}>
           <View style={styles.sectionDividerLine} />
@@ -2730,8 +2767,20 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginHorizontal: 16, marginTop: 10 },
   summaryCard: { flex: 1, minWidth: 110, borderRadius: 14, padding: 18, borderWidth: 1, borderColor: colors.border.primary },
   summaryLabel: { fontSize: 13, color: colors.text.tertiary, fontWeight: '800', marginBottom: 6 },
-  summaryValue: { fontSize: 20, color: colors.text.primary, fontWeight: '900' },
-  summaryLoader: { height: 24, justifyContent: 'center', alignItems: 'flex-start' },
+  summaryValueSlot: {
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    overflow: 'hidden',
+  },
+  summaryValue: {
+    fontSize: 20,
+    lineHeight: 24,
+    height: 24,
+    includeFontPadding: false,
+    color: colors.text.primary,
+    fontWeight: '900',
+  },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 20 },
   modalScrollContent: { flexGrow: 1, justifyContent: 'center' },
   modalCard: { backgroundColor: colors.background.primary, borderRadius: 16, borderWidth: 1, borderColor: colors.border.primary, padding: 16 },

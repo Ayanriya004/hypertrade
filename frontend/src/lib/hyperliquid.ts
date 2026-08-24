@@ -2347,6 +2347,100 @@ export async function getUserDepositWithdrawalHistory(
   return response.json();
 }
 
+function parseLedgerUsd(v: unknown): number {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Internal capital moves that HL does **not** net out of `portfolio.pnlHistory`. */
+const INTERNAL_CAPITAL_LEDGER_TYPES = new Set([
+  'send', // sendAsset (dedicated fund/reclaim, cross-user)
+  'internaltransfer',
+  'subaccounttransfer',
+  'spottransfer',
+]);
+
+/**
+ * Net USDC inflow to `address` from internal transfers (sendAsset, usdSend,
+ * subAccountTransfer, spotTransfer). Positive = capital arrived.
+ *
+ * HL's portfolio graphs define PnL as `accountValue + deposits - withdrawals`
+ * (https://hyperliquid.gitbook.io/hyperliquid-docs/trading/portfolio-graphs).
+ * Dedicated ↔ Main `sendAsset` is neither a deposit nor a withdrawal, so it
+ * leaks into `pnlHistory` as fake trading PnL. Subtract this from the
+ * displayed period figure.
+ *
+ * Same-address dex shuffles (`user === destination === self`, e.g. unified
+ * spot → HIP-3 JIT) are skipped — they don't change equity.
+ */
+export function netInternalCapitalInflowUsd(
+  ledger: unknown,
+  address: string,
+  startMs = 0,
+  endMs = Number.POSITIVE_INFINITY,
+): number {
+  const self = String(address ?? '').toLowerCase();
+  if (!self.startsWith('0x')) return 0;
+  const rows = Array.isArray(ledger) ? ledger : [];
+  let net = 0;
+  for (const row of rows) {
+    const time = Number(row?.time ?? 0);
+    if (Number.isFinite(time) && time > 0 && (time < startMs || time > endMs)) continue;
+    const delta = row?.delta ?? row;
+    const type = String(delta?.type ?? '').toLowerCase();
+    if (!INTERNAL_CAPITAL_LEDGER_TYPES.has(type)) continue;
+
+    const dest = String(delta?.destination ?? '').toLowerCase();
+    const user = String(delta?.user ?? '').toLowerCase();
+    if (!dest && !user) continue;
+    if (dest === self && user === self) continue;
+
+    let usd = parseLedgerUsd(delta?.usdcValue ?? delta?.usdc);
+    if (!Number.isFinite(usd)) {
+      const token = String(delta?.token ?? '').toUpperCase();
+      if (token === 'USDC' || token.startsWith('USDC:')) {
+        usd = parseLedgerUsd(delta?.amount);
+      }
+    }
+    if (!Number.isFinite(usd) || usd === 0) continue;
+
+    const feeRaw = parseLedgerUsd(delta?.fee);
+    const feeToken = String(delta?.feeToken ?? 'USDC').toUpperCase();
+    const feeUsd =
+      Number.isFinite(feeRaw) && feeRaw > 0 && (feeToken === 'USDC' || feeToken.startsWith('USDC:'))
+        ? feeRaw
+        : 0;
+
+    if (dest === self) net += usd;
+    else if (user === self) net -= usd + feeUsd;
+    else if (dest !== self) net -= usd + feeUsd;
+  }
+  return net;
+}
+
+/** Last sample of a PnL series (all-time cumulative, or a 1-point window). */
+export function lastPnlHistoryValue(history: [number, string][] | null | undefined): number | null {
+  if (!Array.isArray(history) || history.length === 0) return null;
+  const raw = history[history.length - 1]?.[1];
+  const n = typeof raw === 'number' ? raw : parseFloat(String(raw ?? ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Trading PnL over a window. HL `day`/`week`/`month` series are cumulative
+ * snapshots — period change is last − first (homepage 24h % already does this).
+ */
+export function windowPnlHistoryDelta(history: [number, string][] | null | undefined): number | null {
+  if (!Array.isArray(history) || history.length === 0) return null;
+  const last = lastPnlHistoryValue(history);
+  if (last == null) return null;
+  if (history.length === 1) return last;
+  const firstRaw = history[0]?.[1];
+  const first = typeof firstRaw === 'number' ? firstRaw : parseFloat(String(firstRaw ?? ''));
+  if (!Number.isFinite(first)) return last;
+  return last - first;
+}
+
 export type Eip1193Provider = {
   request: (args: { method: string; params?: any[] }) => Promise<any>;
 };

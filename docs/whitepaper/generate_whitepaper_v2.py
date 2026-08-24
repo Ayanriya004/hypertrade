@@ -776,8 +776,8 @@ def story(toc_entries: Sequence[tuple] | None = None) -> List:
     s.append(P("Max supply is <b>1,000,000,000 LWL</b> (1 billion). No additional mint is described in this document."))
     s.append(make_table([
         ["Allocation", "Share", "Tokens", "Terms"],
-        ["Public", "75%", "750,000,000", "Fair-launch float on Uniswap via pools.trade (Robinhood Chain)."],
-        ["Ecosystem", "10%", "100,000,000", "Locked until November 2026."],
+        ["Public", "65%", "650,000,000", "Fair-launch float on Uniswap via pools.trade (Robinhood Chain)."],
+        ["Ecosystem", "20%", "200,000,000", "Locked until November 2026."],
         ["AI agents", "10%", "100,000,000", "Locked until January 2027. Not for sale — see note below."],
         ["Team", "5%", "50,000,000", "Locked for 1 year from launch."],
     ], [3.4 * cm, 2.2 * cm, 3.6 * cm, 7.2 * cm]))

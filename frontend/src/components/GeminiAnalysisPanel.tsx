@@ -22,13 +22,14 @@ export const GeminiAnalysisPanel = ({ symbol, category }: GeminiAnalysisPanelPro
   const { t, i18n } = useTranslation();
   const { getAccessToken } = useAuth();
   const lang = i18n.language || 'en';
-  const cacheKey = `${symbol}:${lang}`;
+  const utcDay = new Date().toISOString().slice(0, 10);
+  const cacheKey = `${symbol}:${lang}:${utcDay}`;
 
   const [retryTick, setRetryTick] = useState(0);
   const cached = _analysisCache.get(cacheKey);
 
   const { data, isLoading, isFetching, isError } = useQuery({
-    queryKey: ['gemini_analysis', symbol, category, lang, retryTick],
+    queryKey: ['gemini_analysis', symbol, category, lang, utcDay, retryTick],
     queryFn: async () => {
       const token = await getAccessToken();
       if (!token) {

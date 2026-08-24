@@ -11,7 +11,8 @@ from pathlib import Path
 from pydantic import BaseModel, field_validator
 from typing import List, Optional, Dict, Any, Tuple, Literal
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+from zoneinfo import ZoneInfo
 import csv
 import io
 import httpx
@@ -3931,26 +3932,115 @@ _LANG_NAMES = {
     "ru": "Russian", "tr": "Turkish", "zh": "Chinese",
 }
 
+try:
+    _NY_TZ = ZoneInfo("America/New_York")
+    _NY_TZ_LABEL = "ET"
+except Exception:
+    _NY_TZ = timezone.utc
+    _NY_TZ_LABEL = "UTC"
+    logging.getLogger(__name__).warning(
+        "tzdata missing America/New_York; Ask AI clock falling back to UTC weekdays"
+    )
+_US_REG_OPEN_MIN = 9 * 60 + 30
+_US_REG_CLOSE_MIN = 16 * 60
+_US_PRE_OPEN_MIN = 4 * 60
+_US_AH_END_MIN = 20 * 60
+
+
+def _weekday_on_or_before(d: date) -> date:
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def _previous_weekday(d: date) -> date:
+    return _weekday_on_or_before(d - timedelta(days=1))
+
+
+def _fmt_named_date(d: date) -> str:
+    return datetime(d.year, d.month, d.day).strftime("%A, %B %d, %Y")
+
+
+def _gemini_clock_context() -> Dict[str, Any]:
+    """UTC + America/New_York clock so Ask AI cannot guess weekdays or cash sessions."""
+    now_utc = datetime.now(timezone.utc)
+    now_et = now_utc.astimezone(_NY_TZ)
+    et_date = now_et.date()
+    minutes = now_et.hour * 60 + now_et.minute
+    wd = now_et.weekday()  # Mon=0 … Sun=6
+
+    if wd >= 5:
+        cash_phase = "weekend (US cash equities closed — no regular, pre-market, or after-hours session)"
+        last_cash_close = _weekday_on_or_before(et_date)
+    elif minutes < _US_PRE_OPEN_MIN:
+        cash_phase = "US overnight / before pre-market"
+        last_cash_close = _previous_weekday(et_date)
+    elif minutes < _US_REG_OPEN_MIN:
+        cash_phase = "US pre-market (regular cash session not open yet)"
+        last_cash_close = _previous_weekday(et_date)
+    elif minutes < _US_REG_CLOSE_MIN:
+        cash_phase = "US regular cash session (open)"
+        last_cash_close = _previous_weekday(et_date)
+    elif minutes < _US_AH_END_MIN:
+        cash_phase = "US after-hours (regular cash session already closed)"
+        last_cash_close = et_date
+    else:
+        cash_phase = "US overnight (regular and after-hours finished)"
+        last_cash_close = et_date
+
+    xyz_external = True
+    if wd == 5 or (wd == 4 and minutes >= _US_AH_END_MIN) or (wd == 6 and minutes < _US_AH_END_MIN):
+        xyz_external = False
+
+    nearby = []
+    for offset in range(0, 4):
+        day = et_date - timedelta(days=offset)
+        nearby.append(_fmt_named_date(day))
+
+    return {
+        "now_et": now_et,
+        "utc_stamp": now_utc.strftime("%A, %B %d, %Y %H:%M UTC"),
+        "et_stamp": now_et.strftime(f"%A, %B %d, %Y %H:%M {_NY_TZ_LABEL}"),
+        "cash_phase": cash_phase,
+        "last_cash_close_label": _fmt_named_date(last_cash_close),
+        "nearby_et_dates": nearby,
+        "xyz_external": xyz_external,
+    }
+
+
 def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") -> str:
     """
     Constructs a targeted prompt for Scalp/Swing verdicts using Google Search.
     """
-    now = datetime.utcnow()
-    current_date = now.strftime("%B %d, %Y")
-    yesterday = (now - timedelta(days=1)).strftime("%B %d, %Y")
-    two_days_ago = (now - timedelta(days=2)).strftime("%B %d, %Y")
-    
+    clock = _gemini_clock_context()
+    nearby = clock["nearby_et_dates"]
+    last_cash = clock["last_cash_close_label"]
+    xyz_mode = "external (underlying-linked)" if clock["xyz_external"] else "internal / weekend pricing"
+
+    stock_session_rules = ""
+    if category in ("stock", "index"):
+        stock_session_rules = f"""
+    US CASH SESSION CLOCK (America/New_York — do not guess weekdays):
+    - Right now: {clock["et_stamp"]}. Cash session state: {clock["cash_phase"]}.
+    - Nearby calendar dates (ET): {", ".join(nearby)}. Use these weekdays exactly. Never relabel a date (e.g. do not call a Sunday "Friday").
+    - Most recent completed US regular cash session (09:30–16:00 ET, Mon–Fri only): {last_cash}. Saturday and Sunday have no NYSE/Nasdaq regular close.
+    - Pre-market (~04:00–09:30 ET) and after-hours (~16:00–20:00 ET) exist on weekdays around that regular session — not on Saturday/Sunday.
+    - HIP-3 equity perps (NVDA, AAPL, …) can still print when cash is shut. External hours are Sun 20:00 ET → Fri 20:00 ET; current perp pricing mode: {xyz_mode}. That is not US cash pre-market or a Friday close.
+    - For "last close" / "Friday close" language, cite {last_cash}, not a weekend calendar date.
+    """
+
     # BASE SYSTEM INSTRUCTION - Focus shifted to bias and timeframe
     base_instruction = f"""
-    Today is {current_date} (UTC). You are an elite Multi-Asset Proprietary Trader.
+    Today is {clock["utc_stamp"]} / {clock["et_stamp"]}. You are an elite Multi-Asset Proprietary Trader.
     Your GOAL: Provide a high-conviction directional bias (Long/Short/Neutral) for {symbol} based on live Google Search data.
     
     DATA FRESHNESS RULE (CRITICAL):
-    - Always try to find data for today ({current_date}) first.
-    - If today's data is unavailable (market not yet open, weekend, holiday, or too early in the trading session), you MUST fall back to the most recent available data from {yesterday} or {two_days_ago}. NEVER say "no data available" without searching these fallback dates.
-    - For US-based assets: US markets may not have opened yet if it is before 14:30 UTC. In that case, use the most recent closing session data.
+    - Always try to find data for today first.
+    - If today's US cash print is unavailable (weekend, holiday, or session not open yet), fall back to the most recent completed regular cash session: {last_cash}. Do NOT treat a Saturday or Sunday as a trading day, and do not invent a weekday for a date.
+    - Nearby ET dates with weekdays: {", ".join(nearby)}.
     - For crypto: data is 24/7, so there should always be recent data.
-    - Clearly state which date/session the data is from.
+    - Clearly state which date and which session (regular / pre-market / after-hours / HIP-3 external) the data is from.
+    {stock_session_rules}
 
     TIME PERIODS: 
     - Scalp: 15m to 4h outlook.
@@ -3975,7 +4065,7 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
     
     elif category == "stock":
         metrics = """
-        1. Price Action: Pre-market/Post-market gaps, relative strength vs SPY/QQQ.
+        1. Price Action: Regular-session move vs HIP-3 perp; mention pre-market/after-hours only if the clock above says those windows are active. Relative strength vs SPY/QQQ.
         2. Flow: Unusual Options Activity (sweeps/blocks) and Dark Pool levels.
         3. Volatility: IV Rank vs realized vol – is the move "priced in"?
         4. Catalysts: Upcoming earnings, Fed speakers, or sector-specific news.
@@ -4127,7 +4217,8 @@ async def get_gemini_analysis(
     effective_lang = (lang or "en").lower().strip()
 
     # Check cache first (shared across all users, 4-hour TTL)
-    cache_key = f"{symbol}:{category}:{effective_lang}"
+    et_day = datetime.now(timezone.utc).astimezone(_NY_TZ).date().isoformat()
+    cache_key = f"{symbol}:{category}:{effective_lang}:{et_day}"
     cached = None
     is_cache_fresh = False
     

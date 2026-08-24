@@ -15,6 +15,8 @@ import {
   KeyboardAvoidingView,
   Keyboard,
   Animated,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
@@ -337,6 +339,12 @@ export const AssetChart = ({
   const bakedInitialCandlesRef = useRef<unknown>(null);
   const lastLiveUpdateRef = useRef(0);
   const liveCandleRef = useRef<{ time: number; open: number; high: number; low: number; close: number; volume: number } | null>(null);
+  const lastMidSyncRef = useRef<{ time: number; px: number } | null>(null);
+  /** After a background pause, freeze mid/WS wick updates until REST replaces the tail. */
+  const freezeLiveUntilResyncRef = useRef(false);
+  const replaceTailOnNextSyncRef = useRef(false);
+  const backgroundedAtRef = useRef<number | null>(null);
+  const resumeUnfreezeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [earliestTimeMs, setEarliestTimeMs] = useState<number | null>(null);
   const [isSwitchingInterval, setIsSwitchingInterval] = useState(false);
   const pendingIntervalRef = useRef(selectedInterval);
@@ -948,6 +956,46 @@ export const AssetChart = ({
       if (timeoutId !== null) clearTimeout(timeoutId);
     };
   }, [intervalMsValue, liveCandle]);
+
+  // Background pause: JS + candle WS freeze, but the first allMids tick on
+  // resume is applied onto the still-open last bar (expand high/low). That
+  // paints a giant wick. Interval switch "fixes" it because it reloads REST
+  // without merging that live tail. Refetch and replace the tail instead.
+  useEffect(() => {
+    const beginPause = () => {
+      if (backgroundedAtRef.current == null) backgroundedAtRef.current = Date.now();
+    };
+    const onChange = (next: AppStateStatus) => {
+      if (next === 'background' || next === 'inactive') {
+        beginPause();
+        return;
+      }
+      if (next !== 'active') return;
+      const started = backgroundedAtRef.current;
+      backgroundedAtRef.current = null;
+      if (!started) return;
+      if (Date.now() - started < 1500) return;
+      freezeLiveUntilResyncRef.current = true;
+      replaceTailOnNextSyncRef.current = true;
+      liveCandleRef.current = null;
+      lastMidSyncRef.current = null;
+      lastSyncTimeRef.current = Date.now();
+      if (resumeUnfreezeTimerRef.current) clearTimeout(resumeUnfreezeTimerRef.current);
+      resumeUnfreezeTimerRef.current = setTimeout(() => {
+        freezeLiveUntilResyncRef.current = false;
+        resumeUnfreezeTimerRef.current = null;
+      }, 8000);
+      setHistoryEndTime(Date.now());
+    };
+    const sub = AppState.addEventListener('change', onChange);
+    return () => {
+      sub.remove();
+      if (resumeUnfreezeTimerRef.current) {
+        clearTimeout(resumeUnfreezeTimerRef.current);
+        resumeUnfreezeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const hlAddress = (tradingAddress || userAddress || '') as string;
   const hlAddressReady = !!isAuthenticated && !!hlAddress && hlAddress.startsWith('0x');
@@ -1944,10 +1992,15 @@ export const AssetChart = ({
     const syncWindowSize = 30;
     const cutoffIndex = Math.max(0, mapped.length - syncWindowSize);
     const nextCandles = mapped.slice(cutoffIndex);
+    const replaceLatest = replaceTailOnNextSyncRef.current;
+    replaceTailOnNextSyncRef.current = false;
     
     if (nextCandles.length) {
       const payload = JSON.stringify(nextCandles);
-      injectChartScript(`window.__syncCandles && window.__syncCandles(${payload});`, 'both');
+      injectChartScript(
+        `window.__syncCandles && window.__syncCandles(${payload}, ${replaceLatest ? 'true' : 'false'});`,
+        'both',
+      );
       const last = (mapped[mapped.length - 1] as any)?.time;
       if (Number.isFinite(last)) {
         lastCandleSyncRef.current = last as number;
@@ -1955,12 +2008,21 @@ export const AssetChart = ({
       const latest = (mapped[mapped.length - 1] as any);
       if (latest && Number.isFinite(latest.time)) {
         latestCandleRef.current = latest;
+        if (replaceLatest) {
+          liveCandleRef.current = latest;
+          freezeLiveUntilResyncRef.current = false;
+          if (resumeUnfreezeTimerRef.current) {
+            clearTimeout(resumeUnfreezeTimerRef.current);
+            resumeUnfreezeTimerRef.current = null;
+          }
+        }
       }
     }
   }, [candleData?.candles, initialCandles, isPlaceholderData, isWebViewReady, mapToLightweightCandles]);
 
   useEffect(() => {
     if (!isWebViewReady || !initialCandles?.length || !liveCandle) return;
+    if (freezeLiveUntilResyncRef.current) return;
     // Same rationale as the live-price effect above: wait until the first
     // settle pass is done so a WS tick landing mid-fade can't autoscale.
     if (!isChartVisible) return;
@@ -2049,9 +2111,9 @@ export const AssetChart = ({
   // interval so this works even before HL's candle WS has pushed a frame
   // for the bar. When a real trade does fire the candle WS takes over —
   // our write is idempotent (same bar.time), so we just converge.
-  const lastMidSyncRef = useRef<{ time: number; px: number } | null>(null);
   useEffect(() => {
     if (!isWebViewReady || !isChartVisible) return;
+    if (freezeLiveUntilResyncRef.current) return;
     if (renderedInterval !== selectedInterval || isSwitchingInterval) return;
     if (!Number.isFinite(livePrice ?? NaN) || (livePrice ?? 0) <= 0) return;
     const intervalSec = Math.max(1, Math.floor((intervalMsValue || 60000) / 1000));
@@ -5751,11 +5813,12 @@ export const AssetChart = ({
 
       // Sync candles from server - FULLY REPLACES completed candles to fix drift
       // Only merges the very latest candle (which is still being updated)
-      window.__syncCandles = (incoming) => {
+      window.__syncCandles = (incoming, replaceLatest) => {
         if (!Array.isArray(incoming) || incoming.length === 0) return;
         incoming = incoming.map(cxCandle);
         const sorted = [...incoming].sort((a, b) => a.time - b.time);
         const latestIncomingTime = sorted[sorted.length - 1]?.time;
+        const replaceCurrent = !!replaceLatest;
         
         // Build a map of existing data
         const existingMap = new Map();
@@ -5763,9 +5826,11 @@ export const AssetChart = ({
         
         // For each incoming candle:
         // - If it's the latest (current) candle, merge with existing
+        //   unless replaceLatest (app resume) — that merge kept fake
+        //   mid-price wicks from the background gap.
         // - Otherwise, FULLY REPLACE with server data
         sorted.forEach((incoming) => {
-          if (incoming.time === latestIncomingTime) {
+          if (incoming.time === latestIncomingTime && !replaceCurrent) {
             // Current candle - merge to preserve live updates
             const existing = existingMap.get(incoming.time);
             if (existing) {

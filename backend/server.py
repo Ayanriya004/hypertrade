@@ -7154,6 +7154,25 @@ def _send_push_notification(push_token: str, title: str, body: str, data: Option
         return False
 
 
+def _alert_display_symbol(symbol: str) -> str:
+    """Coin shown in alert push title/body. Leaves stored/matching symbols unchanged.
+
+    HIP-3 rows may be `SNDK:xyz` (create-alert storage) or `xyz:SNDK` (HL coin form).
+    Strip the known dex on either side; if that would empty the label, keep the original.
+    """
+    raw = (symbol or "").strip()
+    if not raw or ":" not in raw:
+        return raw
+    left, right = raw.split(":", 1)
+    left, right = left.strip(), right.strip()
+    dexes = {d.lower() for d in HIP3_DEXES}
+    if left.lower() in dexes:
+        return right or raw
+    if right.lower() in dexes:
+        return left or raw
+    return raw
+
+
 async def _check_and_trigger_alerts():
     """
     Background task that checks prices and triggers alerts.
@@ -7244,6 +7263,7 @@ async def _check_and_trigger_alerts():
                 
                 # Format notification
                 symbol = alert["symbol"]
+                display_symbol = _alert_display_symbol(symbol)
                 target = alert["target_price"]
                 current = alert["triggered_price"]
                 condition_text = "above" if alert["condition"] == "above" else "below"
@@ -7255,8 +7275,8 @@ async def _check_and_trigger_alerts():
                     else:
                         return f"{p:.6f}".rstrip("0").rstrip(".")
                 
-                title = f"🔔 {symbol} Alert Triggered!"
-                body = f"{symbol} is now ${_fmt_price(current)} ({condition_text} ${_fmt_price(target)})"
+                title = f"🔔 {display_symbol} Alert Triggered!"
+                body = f"{display_symbol} is now ${_fmt_price(current)} ({condition_text} ${_fmt_price(target)})"
                 if alert.get("note"):
                     body += f"\n{alert['note']}"
                 

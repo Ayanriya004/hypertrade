@@ -15,12 +15,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { showToast, showErrorToast } from '../src/lib/toast';
-
-/** Strip dex suffix (e.g., "GOLD:xyz" → "GOLD") for display */
-const getDisplaySymbol = (symbol: string): string => {
-  if (!symbol) return symbol;
-  return symbol.includes(':') ? symbol.split(':')[0] : symbol;
-};
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -48,6 +42,21 @@ import { pickPrice } from '../src/lib/priceKeys';
 import { useTranslation } from 'react-i18next';
 import { fetchAssets, fetchCryptoAssets, Asset } from '../src/lib/api';
 import { isHiddenLowLiquidityGoldSpotAsset } from '../src/lib/hiddenMarkets';
+import { formatDisplaySymbol } from '../src/lib/displaySymbols';
+
+/** HIP-3 labels: `GOLD:xyz` or HL coin `xyz:SNDK` → `GOLD` / `SNDK`. Never empty. */
+const getDisplaySymbol = (symbol: string): string => {
+  if (!symbol) return symbol;
+  const raw = String(symbol).trim();
+  if (!raw.includes(':')) return formatDisplaySymbol(raw) || raw;
+  const [left, ...rest] = raw.split(':');
+  const right = rest.join(':');
+  const leftL = left.toLowerCase();
+  const rightL = right.toLowerCase();
+  if (leftL === 'xyz') return formatDisplaySymbol(right) || raw;
+  if (rightL === 'xyz') return formatDisplaySymbol(left) || raw;
+  return formatDisplaySymbol(raw) || raw;
+};
 
 type TabType = 'active' | 'triggered' | 'history';
 
@@ -551,7 +560,7 @@ export default function PriceAlertsScreen() {
   const renderHistoryItem = useCallback(({ item }: { item: AlertHistory }) => (
     <View style={styles.historyCard}>
       <View style={styles.historyHeader}>
-        <Text style={styles.alertSymbol}>{item.symbol}</Text>
+        <Text style={styles.alertSymbol}>{getDisplaySymbol(item.symbol)}</Text>
         <View style={[
           styles.conditionBadge,
           { backgroundColor: item.condition === 'above' 

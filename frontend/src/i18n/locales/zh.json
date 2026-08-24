@@ -1807,6 +1807,7 @@
   },
   "demo": {
     "bannerText": "模拟模式",
+    "bannerHint": "成交不及实盘高效。",
     "badgeLabel": "模拟",
     "tradePreview": "模拟交易预览",
     "demoAccount": "模拟账户",

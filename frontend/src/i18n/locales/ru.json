@@ -1811,6 +1811,7 @@
   },
   "demo": {
     "bannerText": "ДЕМО-РЕЖИМ",
+    "bannerHint": "Слабее, чем на живом рынке.",
     "badgeLabel": "ДЕМО",
     "tradePreview": "Демо Предпросмотр",
     "demoAccount": "Демо-Аккаунт",

@@ -1811,6 +1811,7 @@
   },
   "demo": {
     "bannerText": "DEMO MODU",
+    "bannerHint": "Canlı piyasalar kadar verimli değil.",
     "badgeLabel": "DEMO",
     "tradePreview": "Demo Önizleme",
     "demoAccount": "Demo Hesap",

@@ -1824,6 +1824,7 @@
   },
   "demo": {
     "bannerText": "MODE DÉMO",
+    "bannerHint": "Moins efficace qu'en marché réel.",
     "badgeLabel": "DÉMO",
     "tradePreview": "Aperçu Démo",
     "demoAccount": "Compte Démo",

@@ -1833,6 +1833,7 @@
   },
   "demo": {
     "bannerText": "デモモード",
+    "bannerHint": "約定は本番ほど効率的ではありません。",
     "badgeLabel": "デモ",
     "tradePreview": "デモ取引プレビュー",
     "demoAccount": "デモ口座",

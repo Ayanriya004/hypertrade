@@ -1806,6 +1806,7 @@
   },
   "demo": {
     "bannerText": "DEMO MODE",
+    "bannerHint": "Demo execution is not as liquid as live markets.",
     "badgeLabel": "DEMO",
     "tradePreview": "Demo Trade Preview",
     "demoAccount": "Demo Account",

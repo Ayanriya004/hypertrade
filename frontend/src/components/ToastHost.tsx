@@ -5,7 +5,7 @@ import { usePathname } from 'expo-router';
 import Toast from 'react-native-toast-message';
 
 import { toastConfig } from './ToastConfig';
-import { TOP_STRIP_CONTENT_HEIGHT } from './ClaimTradingCreditBanner';
+import { useTopStripContentHeight } from './ClaimTradingCreditBanner';
 import { useAppStore } from '../store/appStore';
 import { DEFAULT_TOAST_TOP_OFFSET, setToastTopOffset } from '../lib/toast';
 
@@ -25,8 +25,9 @@ export function ToastHost() {
   const pathname = usePathname();
   const tradingEnv = useAppStore((s) => s.tradingEnv);
   const demoStripVisible = tradingEnv === 'demo' && pathname !== '/login';
+  const topStripContentHeight = useTopStripContentHeight();
   const topOffset = demoStripVisible
-    ? DEFAULT_TOAST_TOP_OFFSET + insets.top + TOP_STRIP_CONTENT_HEIGHT
+    ? DEFAULT_TOAST_TOP_OFFSET + insets.top + topStripContentHeight
     : DEFAULT_TOAST_TOP_OFFSET;
 
   useEffect(() => {

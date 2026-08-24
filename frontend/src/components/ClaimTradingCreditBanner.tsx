@@ -25,6 +25,8 @@ const DISMISS_KEY = '@hypertrade/claim_credit_banner_dismissed';
 
 /** Extra breathing room below the demo strip on home only (px). */
 export const HOME_DEMO_STRIP_EXTRA_GAP_PX = 2;
+/** Extra content height for the two-line demo strip vs the single-line claim strip. */
+export const DEMO_STRIP_TWO_LINE_EXTRA_PX = 16;
 
 type ClaimBannerContextValue = {
   /** When true, the global claim strip is visible — Header should not add top safe-area padding again */
@@ -109,7 +111,8 @@ export function ClaimBannerRoot({ children }: { children: React.ReactNode }) {
   // dismissable — that's the whole point of the indicator.
   const showDemoStrip = isDemo && notLogin;
   const extraTopStripContentPx =
-    showDemoStrip && isHome ? HOME_DEMO_STRIP_EXTRA_GAP_PX : 0;
+    (showDemoStrip ? DEMO_STRIP_TWO_LINE_EXTRA_PX : 0) +
+    (showDemoStrip && isHome ? HOME_DEMO_STRIP_EXTRA_GAP_PX : 0);
 
   const value = useMemo(
     () => ({
@@ -143,21 +146,27 @@ export function ClaimBannerRoot({ children }: { children: React.ReactNode }) {
 function DemoModeStrip() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
-  // Demo strip has no dismiss button so it doesn't need the symmetric side
-  // spacers used by the claim strip. Stretching the center cluster across
-  // the full width with `flex: 1` + `justifyContent: 'center'` plants the
-  // icon+text exactly in the visual middle on every device width.
   return (
     <View style={[styles.strip, styles.demoStrip, { paddingTop: insets.top }]} pointerEvents="none">
-      <View style={[styles.centerCluster, styles.demoCenterCluster]}>
-        <Ionicons name="flask" size={13} color={colors.accent.gold} style={styles.leadIcon} />
+      <View style={styles.demoBody}>
+        <View style={styles.demoTitleRow}>
+          <Ionicons name="flask" size={12} color={colors.accent.gold} style={styles.leadIcon} />
+          <Text
+            style={[styles.message, styles.demoMessage]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+          >
+            {t('demo.bannerText')}
+          </Text>
+        </View>
         <Text
-          style={[styles.message, styles.demoMessage]}
+          style={styles.demoHint}
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.82}
+          minimumFontScale={0.75}
         >
-          {t('demo.bannerText')}
+          {t('demo.bannerHint')}
         </Text>
       </View>
     </View>
@@ -290,9 +299,30 @@ const styles = StyleSheet.create({
     color: colors.accent.gold,
     fontWeight: '900',
     letterSpacing: 0.6,
+    lineHeight: 14,
   },
-  // Demo strip has no dismiss button, so stretch the center cluster across
-  // the full row width and center its contents — gives true visual center
-  // regardless of device width.
-  demoCenterCluster: { flex: 1 },
+  demoBody: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingBottom: 2,
+    minWidth: 0,
+  },
+  demoTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    maxWidth: '100%',
+    minWidth: 0,
+  },
+  demoHint: {
+    marginTop: 1,
+    paddingHorizontal: 12,
+    maxWidth: '100%',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '500',
+    color: colors.text.tertiary,
+    textAlign: 'center',
+  },
 });

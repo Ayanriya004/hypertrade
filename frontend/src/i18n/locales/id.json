@@ -1807,6 +1807,7 @@
   },
   "demo": {
     "bannerText": "MODE DEMO",
+    "bannerHint": "Tidak seefisien pasar live.",
     "badgeLabel": "DEMO",
     "tradePreview": "Pratinjau Demo",
     "demoAccount": "Akun Demo",

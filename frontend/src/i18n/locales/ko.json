@@ -1847,6 +1847,7 @@
   },
   "demo": {
     "bannerText": "데모 모드",
+    "bannerHint": "실거래만큼 효율적이지 않습니다.",
     "badgeLabel": "데모",
     "tradePreview": "데모 거래 미리보기",
     "demoAccount": "데모 계정",

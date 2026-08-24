@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback, ReactNode, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback, ReactNode, useRef } from 'react';
 import { 
   usePrivy, 
   useLoginWithEmail,
@@ -318,15 +318,25 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
     createdAt: new Date(privyUser.created_at),
   } : null;
 
-  // Keep the zustand store in sync so non-auth screens can reliably know auth state
-  useEffect(() => {
-    if (!isReady) {
-      return;
-    }
+  // Sync zustand before paint. Home used to read the store one frame after
+  // Privy `isReady`, treat that gap as guest, and flash the hero carousel.
+  useLayoutEffect(() => {
+    if (!isReady) return;
     if (authenticated && user) {
       setAuthenticated(true, user);
       setGuest(false);
+      return;
+    }
+    // Only tear down a live session — not the first "ready but not yet
+    // restored" tick, which would mark a returning user as guest.
+    if (useAppStore.getState().isAuthenticated) {
+      resetAppSession();
+    }
+  }, [authenticated, isReady, user, setAuthenticated, setGuest, resetAppSession]);
 
+  useEffect(() => {
+    if (!isReady) return;
+    if (authenticated && user) {
       if (afAuthUserRef.current !== user.id) {
         afAuthUserRef.current = user.id;
         const linkedAccounts = privyUser?.linked_accounts || [];
@@ -348,10 +358,9 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
       }
     } else {
       afAuthUserRef.current = null;
-      resetAppSession();
       Analytics.setUserId(null);
     }
-  }, [authenticated, isReady, user, setAuthenticated, setGuest, resetAppSession, privyUser]);
+  }, [authenticated, isReady, user, privyUser]);
 
   // Load backend UR test-wallet config once authenticated
   useEffect(() => {

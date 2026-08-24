@@ -1,7 +1,7 @@
 /**
- * Skeleton placeholder for the home guest CTA ("Start Trading Today").
- * Shown from first paint until Privy auth is ready (`isReady`), then replaced
- * by the real guest card or the logged-in AccountCard.
+ * Skeleton placeholder for the home guest CTA carousel.
+ * Shown from first paint until Privy is ready, only when the last session
+ * was a guest — logged-in boots use AccountCardSkeleton instead.
  */
 import React from 'react';
 import { StyleSheet, View } from 'react-native';

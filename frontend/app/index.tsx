@@ -32,7 +32,9 @@ import { TweenedStatText } from '../src/components/TweenedStatText';
 import { AssetCard } from '../src/components/AssetCard';
 import { LoadingIndicator } from '../src/components/LoadingSpinner';
 import { GuestCtaSkeleton } from '../src/components/GuestCtaSkeleton';
+import { AccountCardSkeleton, HOME_ACCOUNT_CARD_MIN_HEIGHT } from '../src/components/AccountCardSkeleton';
 import { GuestCtaCarousel } from '../src/components/GuestCtaCarousel';
+import { getHomeHeroAuthedHint } from '../src/lib/homeHeroAuthHint';
 import { MarketOverviewSkeleton } from '../src/components/MarketOverviewSkeleton';
 import { DemoLiveDot } from '../src/components/DemoMode';
 import { BouncingDots } from '../src/components/BouncingDots';
@@ -1009,6 +1011,8 @@ const accountCardStyles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border.primary,
+    minHeight: HOME_ACCOUNT_CARD_MIN_HEIGHT,
+    justifyContent: 'center',
   },
   mainRow: {
     flexDirection: 'row',
@@ -1268,7 +1272,7 @@ function MarketDashboard() {
   }, []);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
-  const { selectAsset, isAuthenticated, user } = useAppStore();
+  const { selectAsset, isAuthenticated: storeAuthed, user } = useAppStore();
   const { address: activeAddr } = useActiveEthereumWallet();
   const embeddedAddress = activeAddr ?? null;
   // Demo mode (HL testnet). Drives the demo banner / labels, the live-dot
@@ -1276,7 +1280,10 @@ function MarketDashboard() {
   // testnet markets; GOLD is exposed as the HIP-3 perp `xyz:GOLD`.
   const tradingEnv = useAppStore((s) => s.tradingEnv);
   const isDemo = tradingEnv === 'demo';
-  const { isReady, isPendingOAuth, needsOAuthRetry, getAccessToken } = useAuth();
+  const { isReady, isAuthenticated: sessionAuthed, isPendingOAuth, needsOAuthRetry, getAccessToken } = useAuth();
+  // Privy session is the source of truth. Zustand lags one paint behind
+  // `isReady`, which used to mount the guest hero then swap to Trade Account.
+  const isAuthenticated = sessionAuthed || storeAuthed;
   const oauthRetryNavRef = useRef(false);
   const [favoriteCoins, setFavoriteCoins] = useState<string[]>([]);
   const [showAllMarkets, setShowAllMarkets] = useState(false);
@@ -1291,11 +1298,15 @@ function MarketDashboard() {
   const [showReorderModal, setShowReorderModal] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const insets = useSafeAreaInsets();
-  const [showGuestCta, setShowGuestCta] = useState(false);
   const guestCtaFade = useRef(new Animated.Value(0)).current;
-  /** Skeleton for guest CTA slot while Privy boots — remove GuestCtaSkeleton block to revert */
+  const lastHeroAuthed = getHomeHeroAuthedHint();
+  // Guest hero only after Privy has settled as logged-out. Until then keep
+  // the last session's skeleton so a restore cannot flash the carousel.
+  const showGuestCta = isReady && !isAuthenticated && !isPendingOAuth;
+  const showAccountBootSkeleton =
+    !isAuthenticated && !showGuestCta && lastHeroAuthed !== false;
   const showGuestCtaSkeleton =
-    !isReady && !isAuthenticated && !isPendingOAuth;
+    !isAuthenticated && !showGuestCta && lastHeroAuthed === false;
   const isNavigatingRef = useRef(false);
   const lastNavigatedAssetRef = useRef<string | null>(null);
   const [showOnboardingPulse, setShowOnboardingPulse] = useState(false);
@@ -1842,22 +1853,19 @@ function MarketDashboard() {
     }
   }, [isAuthenticated, selectedTab]);
 
-  // Show guest CTA immediately when auth state is resolved (not authenticated, not pending OAuth).
-  // Fade in smoothly to avoid jarring appearance.
+  // Fade the guest carousel in once Privy has confirmed a logged-out session.
   useEffect(() => {
-    if (!isReady || isAuthenticated || isPendingOAuth) {
-      setShowGuestCta(false);
+    if (!showGuestCta) {
       guestCtaFade.setValue(0);
       return;
     }
-    setShowGuestCta(true);
     Animated.timing(guestCtaFade, {
       toValue: 1,
       duration: 400,
       easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start();
-  }, [isAuthenticated, isReady, isPendingOAuth, guestCtaFade]);
+  }, [showGuestCta, guestCtaFade]);
 
   // After a broken OAuth round-trip (common on Android + Telegram), send the user
   // to login so the retry banner is visible instead of leaving them on home as guest.
@@ -2302,7 +2310,8 @@ function MarketDashboard() {
 
   const ListHeader = useCallback(() => (
     <View>
-      {/* Guest CTA skeleton — first paint until isReady (revert: delete this block) */}
+      {/* Auth-boot skeleton — sized to last session so guest↔account doesn't jump */}
+      {showAccountBootSkeleton ? <AccountCardSkeleton /> : null}
       {showGuestCtaSkeleton ? <GuestCtaSkeleton /> : null}
 
       {/* Guest CTA carousel — trading, AI agents, banking, rewards */}
@@ -2411,6 +2420,7 @@ function MarketDashboard() {
   ), [
     effectiveAllAssets,
     isAuthenticated,
+    showAccountBootSkeleton,
     showGuestCtaSkeleton,
     showGuestCta,
     guestCtaFade,
@@ -2828,6 +2838,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border.primary,
+    minHeight: HOME_ACCOUNT_CARD_MIN_HEIGHT,
+    justifyContent: 'center',
   },
   accountValueMainRow: {
     flexDirection: 'row',

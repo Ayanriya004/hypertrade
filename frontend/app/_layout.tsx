@@ -23,6 +23,7 @@ import { getSavedLanguage } from '../src/i18n';
 import i18n from '../src/i18n';
 import { primeIntervalCache } from '../src/lib/intervalPrefs';
 import { primeChartPrefsCache } from '../src/lib/chartPrefs';
+import { primeHomeHeroAuthedHint } from '../src/lib/homeHeroAuthHint';
 import { hydrateActiveTradingBook, hydrateTradingEnv } from '../src/store/appStore';
 import {
   getMantleChain,
@@ -355,6 +356,7 @@ function NativeLayout() {
           // appStore default to mainnet until this resolves.
           hydrateTradingEnv().catch(() => {}),
           hydrateActiveTradingBook().catch(() => {}),
+          primeHomeHeroAuthedHint().catch(() => {}),
         ]);
         if (savedLang !== i18n.language) {
           await i18n.changeLanguage(savedLang);

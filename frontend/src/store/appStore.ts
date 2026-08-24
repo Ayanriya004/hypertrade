@@ -5,6 +5,7 @@ import {
   MAIN_TRADING_BOOK,
   type ActiveTradingBook,
 } from '../lib/tradingBook';
+import { setHomeHeroAuthedHint } from '../lib/homeHeroAuthHint';
 
 export type TradingEnv = 'mainnet' | 'demo';
 export type { ActiveTradingBook };
@@ -85,11 +86,14 @@ export const useAppStore = create<AppState>((set) => ({
   tradingEnv: _hydratedEnv,
   activeTradingBook: MAIN_TRADING_BOOK,
 
-  setAuthenticated: (isAuth, user = null) => set({
-    isAuthenticated: isAuth,
-    isGuest: !isAuth,
-    user,
-  }),
+  setAuthenticated: (isAuth, user = null) => {
+    setHomeHeroAuthedHint(isAuth);
+    set({
+      isAuthenticated: isAuth,
+      isGuest: !isAuth,
+      user,
+    });
+  },
 
   setGuest: (isGuest) => set({ isGuest }),
 
@@ -138,6 +142,7 @@ export const useAppStore = create<AppState>((set) => ({
     // scoped, so a different user on the same device must not inherit testnet
     // transports or cached UI state from the previous account.
     _hydratedEnv = 'mainnet';
+    setHomeHeroAuthedHint(false);
     set({
       isAuthenticated: false,
       isGuest: true,

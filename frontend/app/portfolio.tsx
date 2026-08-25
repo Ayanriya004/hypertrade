@@ -2010,8 +2010,6 @@ export default function PortfolioScreen() {
                   mountDurationMs={700}
                   style={[styles.summaryValue, { color: selectedPnl !== null && selectedPnl >= 0 ? colors.status.success : colors.status.error }]}
                   numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
                 />
               )}
             </View>
@@ -2035,8 +2033,6 @@ export default function PortfolioScreen() {
                   mountDurationMs={700}
                   style={styles.summaryValue}
                   numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
                 />
               )}
             </View>
@@ -2658,11 +2654,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border.primary,
   },
   balanceTotalSlot: {
-    height: 34,
+    minHeight: 34,
+    width: '100%',
+    alignSelf: 'stretch',
+    minWidth: 0,
     marginBottom: 16,
     justifyContent: 'center',
     alignItems: 'flex-start',
-    overflow: 'hidden',
   },
   figureDots: {
     alignSelf: 'flex-start',
@@ -2670,10 +2668,12 @@ const styles = StyleSheet.create({
   balanceTotal: {
     fontSize: 28,
     lineHeight: 34,
-    height: 34,
     includeFontPadding: false,
     color: colors.text.primary,
     fontWeight: '900',
+    width: '100%',
+    maxWidth: '100%',
+    alignSelf: 'stretch',
   },
   balanceBreakdownValueSlot: {
     height: 20,
@@ -2768,18 +2768,22 @@ const styles = StyleSheet.create({
   summaryCard: { flex: 1, minWidth: 110, borderRadius: 14, padding: 18, borderWidth: 1, borderColor: colors.border.primary },
   summaryLabel: { fontSize: 13, color: colors.text.tertiary, fontWeight: '800', marginBottom: 6 },
   summaryValueSlot: {
-    height: 24,
+    minHeight: 24,
+    width: '100%',
+    alignSelf: 'stretch',
+    minWidth: 0,
     justifyContent: 'center',
     alignItems: 'flex-start',
-    overflow: 'hidden',
   },
   summaryValue: {
     fontSize: 20,
     lineHeight: 24,
-    height: 24,
     includeFontPadding: false,
     color: colors.text.primary,
     fontWeight: '900',
+    width: '100%',
+    maxWidth: '100%',
+    alignSelf: 'stretch',
   },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 20 },
   modalScrollContent: { flexGrow: 1, justifyContent: 'center' },

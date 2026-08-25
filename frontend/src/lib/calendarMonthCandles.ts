@@ -2,9 +2,19 @@ import type { Candle } from './api';
 
 /** Chart interval label for calendar-month bars (not HL's 30-day `1M`). */
 export const CALENDAR_MONTH_INTERVAL = '1M';
+/** Chart interval label for Monday-UTC week bars (not HL's Thursday-aligned `1w`). */
+export const CALENDAR_WEEK_INTERVAL = '1w';
 
 export function isCalendarMonthInterval(interval: string): boolean {
   return interval === CALENDAR_MONTH_INTERVAL;
+}
+
+export function isCalendarWeekInterval(interval: string): boolean {
+  return interval === CALENDAR_WEEK_INTERVAL;
+}
+
+export function isCalendarBarInterval(interval: string): boolean {
+  return isCalendarMonthInterval(interval) || isCalendarWeekInterval(interval);
 }
 
 /** UTC calendar month open in seconds (Lightweight Charts unix time). */
@@ -27,6 +37,27 @@ export function calendarMonthsLookbackMs(monthCount: number): number {
   return monthCount * 31 * 86_400_000;
 }
 
+/** UTC week open: Monday 00:00 UTC (ISO weekday). HL native `1w` is epoch/Thursday. */
+export function utcMondayStartSec(tsSec: number): number {
+  const d = new Date(tsSec * 1000);
+  const daysFromMonday = (d.getUTCDay() + 6) % 7;
+  return Math.floor(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysFromMonday) / 1000,
+  );
+}
+
+export function utcMondayStartMs(tsMs: number): number {
+  return utcMondayStartSec(Math.floor(tsMs / 1000)) * 1000;
+}
+
+export function dailyLimitForWeekBars(weekBars: number): number {
+  return Math.min(5000, Math.ceil(weekBars * 7) + 7);
+}
+
+export function calendarWeeksLookbackMs(weekCount: number): number {
+  return weekCount * 7 * 86_400_000;
+}
+
 function normalizeDailyTimeMs(raw: number): number {
   let t = Number(raw);
   if (!Number.isFinite(t)) return NaN;
@@ -38,6 +69,15 @@ function normalizeDailyTimeMs(raw: number): number {
  * Roll daily HL candles into UTC calendar-month OHLCV (open on the 1st 00:00 UTC).
  */
 export function aggregateDailyToCalendarMonths(daily: Candle[]): Candle[] {
+  return aggregateDailyToBuckets(daily, utcMonthStartMs);
+}
+
+/** Roll daily HL candles into Monday-UTC week OHLCV. */
+export function aggregateDailyToCalendarWeeks(daily: Candle[]): Candle[] {
+  return aggregateDailyToBuckets(daily, utcMondayStartMs);
+}
+
+function aggregateDailyToBuckets(daily: Candle[], keyMs: (tMs: number) => number): Candle[] {
   if (!daily?.length) return [];
 
   type Day = {
@@ -70,13 +110,13 @@ export function aggregateDailyToCalendarMonths(daily: Candle[]): Candle[] {
     )
     .sort((a, b) => a.t - b.t);
 
-  const months: Candle[] = [];
+  const bars: Candle[] = [];
   let cur: Day | null = null;
   let curKey = -1;
 
   const flush = () => {
     if (!cur) return;
-    months.push({
+    bars.push({
       t: curKey,
       o: String(cur.o),
       h: String(cur.h),
@@ -88,7 +128,7 @@ export function aggregateDailyToCalendarMonths(daily: Candle[]): Candle[] {
   };
 
   for (const d of sorted) {
-    const key = utcMonthStartMs(d.t);
+    const key = keyMs(d.t);
     if (curKey !== key) {
       flush();
       curKey = key;
@@ -102,7 +142,7 @@ export function aggregateDailyToCalendarMonths(daily: Candle[]): Candle[] {
     }
   }
   flush();
-  return months;
+  return bars;
 }
 
 export type MonthBar = {
@@ -115,17 +155,14 @@ export type MonthBar = {
   trades?: number;
 };
 
-/** Fold a live daily WS candle into the active calendar-month bar. */
-export function foldDailyLiveIntoMonthBar(
+function foldDailyLiveIntoBucket(
   daily: MonthBar,
   seed: MonthBar | null,
+  bucketStart: number,
 ): MonthBar {
-  const dailySec = daily.time > 1e12 ? Math.floor(daily.time / 1000) : daily.time;
-  const monthStart = utcMonthStartSec(dailySec);
-
-  if (seed && seed.time === monthStart) {
+  if (seed && seed.time === bucketStart) {
     return {
-      time: monthStart,
+      time: bucketStart,
       open: seed.open,
       high: Math.max(seed.high, daily.high),
       low: Math.min(seed.low, daily.low),
@@ -136,7 +173,7 @@ export function foldDailyLiveIntoMonthBar(
   }
 
   return {
-    time: monthStart,
+    time: bucketStart,
     open: daily.open,
     high: daily.high,
     low: daily.low,
@@ -144,4 +181,24 @@ export function foldDailyLiveIntoMonthBar(
     volume: daily.volume,
     trades: daily.trades,
   };
+}
+
+function dailyTimeSec(daily: MonthBar): number {
+  return daily.time > 1e12 ? Math.floor(daily.time / 1000) : daily.time;
+}
+
+/** Fold a live daily WS candle into the active calendar-month bar. */
+export function foldDailyLiveIntoMonthBar(
+  daily: MonthBar,
+  seed: MonthBar | null,
+): MonthBar {
+  return foldDailyLiveIntoBucket(daily, seed, utcMonthStartSec(dailyTimeSec(daily)));
+}
+
+/** Fold a live daily WS candle into the active Monday-UTC week bar. */
+export function foldDailyLiveIntoWeekBar(
+  daily: MonthBar,
+  seed: MonthBar | null,
+): MonthBar {
+  return foldDailyLiveIntoBucket(daily, seed, utcMondayStartSec(dailyTimeSec(daily)));
 }

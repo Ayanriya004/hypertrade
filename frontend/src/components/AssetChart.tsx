@@ -29,9 +29,14 @@ import { useLiveCandle } from '../providers/WebSocketProvider';
 import { fetchChartCandles } from '../lib/fetchChartCandles';
 import {
   isCalendarMonthInterval,
+  isCalendarWeekInterval,
+  isCalendarBarInterval,
   utcMonthStartSec,
+  utcMondayStartSec,
   calendarMonthsLookbackMs,
+  calendarWeeksLookbackMs,
   foldDailyLiveIntoMonthBar,
+  foldDailyLiveIntoWeekBar,
 } from '../lib/calendarMonthCandles';
 import { colors } from '../theme/colors';
 import {
@@ -619,6 +624,7 @@ export const AssetChart = ({
       '1d': 86400000,
       '3d': 259200000,
       '1w': 604800000,
+      // 1w is Monday-UTC on chart (built from 1d); 7d is still the bar step.
       // 1M is calendar-month on chart (built from 1d); use ~31d for sort/refetch heuristics only.
       '1M': 31 * 86_400_000,
     } as Record<string, number>),
@@ -626,7 +632,7 @@ export const AssetChart = ({
   );
   const intervalMsValue = intervalMsMap[selectedInterval] ?? 3600000;
   const liveCandleFeedInterval = useMemo(
-    () => (isCalendarMonthInterval(selectedInterval) ? '1d' : selectedInterval),
+    () => (isCalendarBarInterval(selectedInterval) ? '1d' : selectedInterval),
     [selectedInterval],
   );
   const sortedIntervals = useMemo(() => {
@@ -890,7 +896,11 @@ export const AssetChart = ({
       'candles',
       decodedCoin,
       selectedInterval,
-      isCalendarMonthInterval(selectedInterval) ? 'utc-month' : 'hl',
+      isCalendarMonthInterval(selectedInterval)
+        ? 'utc-month'
+        : isCalendarWeekInterval(selectedInterval)
+          ? 'utc-week'
+          : 'hl',
       historyLimit,
       historyEndTime,
     ],
@@ -1829,8 +1839,8 @@ export const AssetChart = ({
       .filter(Boolean) as LightweightCandle[];
     const unique = sortAndCollapseCandleTimes(mapped);
     if (unique.length < 2) return unique;
-    // Calendar months have variable length — do not insert synthetic 30-day bars.
-    if (isCalendarMonthInterval(selectedInterval)) return unique;
+    // Calendar months/weeks are not HL's fixed 30d / Thursday 1w grid — don't insert those synthetics.
+    if (isCalendarBarInterval(selectedInterval)) return unique;
     const stepSec = Math.round(intervalMsValue / 1000);
     if (stepSec <= 0) return unique;
     const filled: LightweightCandle[] = [unique[0]];
@@ -2051,25 +2061,29 @@ export const AssetChart = ({
       volume: Number.isFinite(volume) ? volume : 0,
       trades: Number.isFinite(trades as number) ? (trades as number) : undefined,
     } as any;
-    if (isCalendarMonthInterval(selectedInterval)) {
-      const monthStart = utcMonthStartSec(time as number);
+    if (isCalendarMonthInterval(selectedInterval) || isCalendarWeekInterval(selectedInterval)) {
+      const bucketStart = isCalendarMonthInterval(selectedInterval)
+        ? utcMonthStartSec(time as number)
+        : utcMondayStartSec(time as number);
       const seed =
-        (liveCandleRef.current as any)?.time === monthStart
+        (liveCandleRef.current as any)?.time === bucketStart
           ? (liveCandleRef.current as any)
-          : (latestCandleRef.current as any)?.time === monthStart
+          : (latestCandleRef.current as any)?.time === bucketStart
             ? (latestCandleRef.current as any)
             : null;
-      nextCandle = foldDailyLiveIntoMonthBar(
-        {
-          time: time as number,
-          open,
-          high,
-          low,
-          close,
-          volume: Number.isFinite(volume) ? volume : 0,
-          trades: Number.isFinite(trades as number) ? (trades as number) : undefined,
-        },
-        seed,
+      const dailyBar = {
+        time: time as number,
+        open,
+        high,
+        low,
+        close,
+        volume: Number.isFinite(volume) ? volume : 0,
+        trades: Number.isFinite(trades as number) ? (trades as number) : undefined,
+      };
+      nextCandle = (
+        isCalendarMonthInterval(selectedInterval)
+          ? foldDailyLiveIntoMonthBar(dailyBar, seed)
+          : foldDailyLiveIntoWeekBar(dailyBar, seed)
       ) as any;
     }
     const existing = liveCandleRef.current as any;
@@ -2120,7 +2134,9 @@ export const AssetChart = ({
     const nowSec = Math.floor(Date.now() / 1000);
     const barTime = isCalendarMonthInterval(selectedInterval)
       ? utcMonthStartSec(nowSec)
-      : Math.floor(nowSec / intervalSec) * intervalSec;
+      : isCalendarWeekInterval(selectedInterval)
+        ? utcMondayStartSec(nowSec)
+        : Math.floor(nowSec / intervalSec) * intervalSec;
     const px = livePrice as number;
     const last = lastMidSyncRef.current;
     if (last && last.time === barTime && Math.abs(last.px - px) < 1e-9) return;
@@ -2157,8 +2173,13 @@ export const AssetChart = ({
     
     setIsFetchingHistory(true);
     const isMonth = isCalendarMonthInterval(selectedInterval);
-    const lookbackMs = isMonth ? calendarMonthsLookbackMs(historyStep) : intervalMsValue * historyStep;
-    const stepMs = isMonth ? 86_400_000 : intervalMsValue;
+    const isWeek = isCalendarWeekInterval(selectedInterval);
+    const lookbackMs = isMonth
+      ? calendarMonthsLookbackMs(historyStep)
+      : isWeek
+        ? calendarWeeksLookbackMs(historyStep)
+        : intervalMsValue * historyStep;
+    const stepMs = isMonth || isWeek ? 86_400_000 : intervalMsValue;
     const nextEnd = Math.max(chartStartTime, earliestTimeMs - stepMs);
     const nextStart = Math.max(chartStartTime, nextEnd - lookbackMs);
     try {

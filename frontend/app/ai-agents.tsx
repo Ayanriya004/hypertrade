@@ -108,7 +108,7 @@ import {
 } from '../src/lib/aiSharedTradeGuard';
 
 import { formatNextHourlyCycle, useNextCycleCountdown } from '../src/lib/aiAgentHourlyCycle';
-import { isAiAgentHip3Excluded } from '../src/lib/aiAgentHip3Exclude';
+import { AI_AGENT_SUPPORTED_HIP3_DEXES, isAiAgentHip3Excluded } from '../src/lib/aiAgentHip3Exclude';
 
 const AGENT_CARD_GRADIENT = ['#1a1a2e', '#16213e', '#0f0f1a'] as const;
 const STAT_CARD_GRADIENT = ['#1a1a2e', '#151525', '#0f0f1a'] as const;
@@ -653,13 +653,15 @@ export default function AiAgentsScreen() {
     const crypto = (cryptoAssets?.assets ?? []).filter(
       (a) => !a.isHip3 && !a.isSpotOnly && !a.coin.includes(':') && !a.coin.startsWith('@'),
     );
-    // HIP-3: only whitelisted dexes (worker/backend gate the same set).
-    // Drop coins we can't feed meaningfully (forex/commodities/synthetic
-    // indices / unlisted underliers) — see aiAgentHip3Exclude.ts.
+    // HIP-3 picker: catalog allowlist + supported dexs (`xyz`, `io`).
+    // Pre-IPO (io:ANTH) is never selectable.
     const seen = new Set(crypto.map((a) => a.coin.toUpperCase()));
     const hip3 = (hip3Assets?.assets ?? []).filter((a) => {
       const coin = String(a.coin ?? '');
-      if (!coin.toLowerCase().startsWith('xyz:')) return false;
+      if (!coin.includes(':')) return false;
+      const dex = coin.slice(0, coin.indexOf(':')).toLowerCase();
+      if (!AI_AGENT_SUPPORTED_HIP3_DEXES.has(dex)) return false;
+      if (a.isPreIpo === true) return false;
       if (seen.has(coin.toUpperCase())) return false;
       if (isAiAgentHip3Excluded(coin)) return false;
       return true;

@@ -78,13 +78,22 @@ export interface Asset {
   funding: string | null;
   change24h: number | null;
   isHip3: boolean;
-  /** Live Pre-IPO perpetual (IPOP) — badge shown until XYZ converts to standard equity perp. */
+  /** Live Pre-IPO perpetual — Home + asset-page badge. */
   isPreIpo?: boolean;
   /** HIP-3: true when HL meta growthMode is enabled (90% fee discount). */
   growthMode?: boolean | null;
   /** HIP-3: deployer fee scale from HL meta (drives hip3Scale in fee formula). */
   deployerFeeScale?: number | null;
   nextEarnings?: string;
+  /** HIP-3 perp dex name (`xyz`, `io`). Omitted `dex` in metadata means xyz. */
+  dex?: string | null;
+  /** Pre-IPO mark/oracle clip bounds (Entropy L/U). Book can still trade outside. */
+  preIpoBoundLow?: number | null;
+  preIpoBoundHigh?: number | null;
+  /** Deployer OI cap label (e.g. `3M`). */
+  openInterestCapLabel?: string | null;
+  /** True when $1 of contract = $1B issuer market cap. */
+  preIpoMcapQuote?: boolean | null;
   isSpotOnly?: boolean;
   hasSpot?: boolean;
   spotSymbol?: string | null;

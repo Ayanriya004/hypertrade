@@ -23,7 +23,7 @@ export const GeminiAnalysisPanel = ({ symbol, category }: GeminiAnalysisPanelPro
   const { getAccessToken } = useAuth();
   const lang = i18n.language || 'en';
   const utcDay = new Date().toISOString().slice(0, 10);
-  const cacheKey = `${symbol}:${lang}:${utcDay}`;
+  const cacheKey = `${symbol}:${lang}:${utcDay}:v2`;
 
   const [retryTick, setRetryTick] = useState(0);
   const cached = _analysisCache.get(cacheKey);

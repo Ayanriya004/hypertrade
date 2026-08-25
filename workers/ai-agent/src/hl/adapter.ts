@@ -5,8 +5,8 @@
  *
  * SECURITY MODEL — every AI decision passes through the hard caps here; the
  * LLM output is untrusted input and prompts are NOT a security boundary:
- *   • symbol must be in the agent's configured allowlist (main dex + the
- *     whitelisted HIP-3 dexes in SUPPORTED_HIP3_DEXES — e.g. `xyz:TSLA`)
+ *   • symbol must be in the agent's configured allowlist (main dex +
+ *     catalogued HIP-3 coins on SUPPORTED_HIP3_DEXES — e.g. `xyz:TSLA`)
  *   • leverage clamped to config.leverage_cap
  *   • open/add notional capped so total agent exposure ≤ max_capital_usd
  *     (notional ceiling for both shared and dedicated; sub free margin also clamps)
@@ -176,8 +176,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // margin source, NO agentSendAsset/JIT funding needed. Builder-dex asset ids
 // are 100000 + dexIndex*10000 + universeIndex (HL docs).
 
-/** HIP-3 dexes agents may trade. Extend deliberately, one dex at a time. */
-export const SUPPORTED_HIP3_DEXES = new Set(['xyz']);
+/** HIP-3 dexes agents may trade. Protocol is `{dex}:{COIN}` for any deployer.
+ * Catalog + exclude + isPreIpo still decide which tickers are allowed. */
+export const SUPPORTED_HIP3_DEXES = new Set(['xyz', 'io']);
 
 /** `xyz:TSLA` → 'xyz'; main-dex symbols → null. Case-insensitive. */
 export function symbolDex(symbol: string): string | null {

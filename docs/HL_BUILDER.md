@@ -184,7 +184,9 @@ Official builder registration: [Builder codes](https://hyperliquid.gitbook.io/hy
 
 ## HIP-3 deployer assets
 
-HyperTrade supports HIP-3 permissionless perp deployers (e.g. tradeXYZ `xyz:*`) alongside native HL core markets. The app only surfaces markets you **allowlist in code** — HL can list a ticker on-chain and it still won’t appear until you add metadata + UI wiring below. You can also **strip** deployers / categories and ship a niche catalog without changing HL signing or Bridge2.
+HyperTrade supports HIP-3 permissionless perp deployers (tradeXYZ `xyz:*`, EntropyIO `io:*`, …) alongside native HL core markets. Protocol identity is always `{dex}:{COIN}` (e.g. `xyz:SNDK`, `io:ANTH`). The app only surfaces markets you **allowlist in `ASSET_METADATA`** — HL can list a ticker on-chain and it still won’t appear until you add metadata + UI wiring below. Enabled dexs (`xyz` + `io` by default) control subscribe/fund/fetch only; they do **not** auto-list every `perpDexs` venue (Felix, cash/USDT, …). You can also **strip** deployers / categories and ship a niche catalog without changing HL signing or Bridge2.
+
+Default enabled dexs: backend `HIP3_ENABLED_DEXES`, mobile `EXPO_PUBLIC_HIP3_ENABLED_DEXES` (comma-separated, 2–4 letter names). Unset → `xyz,io`. AI agents may trade **catalogued** `xyz:*` and `io:*` (`SUPPORTED_HIP3_DEXES`); pre-IPO / exclude lists still block names like `io:ANTH`.
 
 ---
 
@@ -205,8 +207,12 @@ Minimal shape:
 # Crypto (core)
 "KNTQ": {"name": "Kinetiq", "symbol": "KNTQ", "category": "crypto", "isSpotOnly": True},
 
-# HIP-3 / XYZ (example stock)
+# HIP-3 / XYZ (example stock) — omitted dex defaults to xyz
 "CXMT": {"name": "ChangXin Technology", "symbol": "CXMT", "category": "stock", "icon": "💻"},
+
+# HIP-3 / other dex (EntropyIO test listing). `dex` is required so io:SNDK
+# cannot collide with xyz:SNDK.
+"ANTH": {"name": "Anthropic", "symbol": "ANTH", "category": "stock", "icon": "🤖", "isPreIpo": True, "dex": "io"},
 ```
 
 Useful flags / fields:
@@ -215,6 +221,7 @@ Useful flags / fields:
 |-------|------|
 | `isSpotOnly: True` | Spot market only (no perp in this app catalog) — e.g. `KNTQ`, `USDT`, `GOLDSPOT` |
 | `isPreIpo: True` | Pre-IPO / IPOP-style equities — UI treats them as pre-IPO; **clear the flag** once the live equity perp replaces it (see comments on `SPCX` / `CBRS`) |
+| `dex` | HIP-3 perp dex (`"xyz"`, `"io"`, …). **Omitted `dex` means `xyz`.** Required when the same ticker exists on another enabled dex (do **not** let `io:SNDK` steal the Sandisk `xyz:SNDK` card). |
 | `hlBaseCoin` | HL base ticker differs from app key — e.g. `GOLDSPOT` → `"XAUT"` |
 | `displayName` | Home/ticker label differs from HL/API key — e.g. `CL` → `OIL`, `XYZ100` → `NDX100` |
 | `icon` | Emoji fallback when no image logo |
@@ -343,15 +350,16 @@ Redeploy **backend** after dict / Finnhub edits; rebuild the app after logo / `i
 
 ### Minimal HIP-3 equity checklist (copy/paste)
 
-1. TradeXYZ / HL market live (`xyz:TICKER`)
-2. `ASSET_METADATA` entry (`category: "stock"`)
+1. HIP-3 market live (`xyz:TICKER` or `io:TICKER`, …)
+2. `ASSET_METADATA` entry (`category: "stock"`; set `dex` when not xyz)
 3. Logo → `AssetLogo.tsx` (+ showcase `symbolLogos.ts` if needed)
 4. `CUSTOM_MARKET_ORDER` (+ `STOCK_SYMBOL_OVERRIDES` / `newListings` as desired)
-5. `workers/.../assetClass.ts` → `HIP3_CLASS`
-6. Decide AI: leave off exclude lists **or** add to both exclude files if no US options underlier
-7. Finnhub: map/guard/unsupported only if sync needs it; else rely on manual `stock_fundamentals`
-8. Supabase: `stock_fundamentals` (+ `outstanding_shares`, sector/industry) and optional `asset_descriptions`
-9. Deploy API + worker; rebuild app
+5. Confirm the dex is in `HIP3_ENABLED_DEXES` / `EXPO_PUBLIC_HIP3_ENABLED_DEXES` (default includes `xyz` and `io`)
+6. `workers/.../assetClass.ts` → `HIP3_CLASS` (defaults to equity if omitted)
+7. Decide AI: leave off exclude lists **or** add to both exclude files if no US options underlier / pre-IPO
+8. Finnhub: map/guard/unsupported only if sync needs it; else rely on manual `stock_fundamentals`
+9. Supabase: `stock_fundamentals` (+ `outstanding_shares`, sector/industry) and optional `asset_descriptions`
+10. Deploy API + worker; rebuild app
 
 ### TradeXYZ specs (before you allowlist)
 

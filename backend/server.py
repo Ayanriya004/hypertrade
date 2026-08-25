@@ -39,6 +39,8 @@ from exponent_server_sdk import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+from hip3_dexes import enabled_hip3_dexes, hip3_display_symbol, is_hip3_dex_name, split_hip3_coin
+
 from rewards import (
     get_rewards_profile,
     apply_referral_code,
@@ -1113,8 +1115,9 @@ api_router = APIRouter(prefix="/api")
 # HTTP client for Hyperliquid
 http_client: Optional[httpx.AsyncClient] = None
 
-# Known HIP-3 DEX names (we'll discover these dynamically)
-HIP3_DEXES = ["xyz"]  # Primary HIP-3 dex for RWA assets
+# HIP-3 venues we fetch/subscribe (catalog tickers are still ASSET_METADATA).
+# Override with HIP3_ENABLED_DEXES=xyz or xyz,io — never dump every perpDexs name.
+HIP3_DEXES = enabled_hip3_dexes()
 
 # Display/base symbol → Hyperliquid HIP-3 perp name for candleSnapshot (HL UI may differ from our keys).
 # 2026-07-22: tradeXYZ listed SKHY (Nasdaq ADS). Old SKHX bookmarks/charts
@@ -1125,14 +1128,13 @@ HL_CANDLE_SYMBOL_ALIASES: Dict[str, str] = {
 
 
 def _resolve_hl_candle_coin(coin: str) -> str:
-    """Map xyz:DISPLAY to xyz:HL_NAME when the listing uses a different perp symbol."""
+    """Map `{dex}:{DISPLAY}` to `{dex}:{HL_NAME}` when the listing uses a different perp symbol."""
     if not coin or ":" not in coin:
         return coin
-    dex, base = coin.split(":", 1)
+    dex, base = split_hip3_coin(coin)
     mapped = HL_CANDLE_SYMBOL_ALIASES.get(base.upper())
-    if mapped:
-        return f"{dex}:{mapped}"
-    return coin
+    hl_base = mapped or base
+    return f"{dex}:{hl_base}"
 
 
 # Asset display names and metadata
@@ -1159,6 +1161,21 @@ ASSET_METADATA = {
     "MU": {"name": "Micron", "symbol": "MU", "category": "stock", "icon": "💻"},
     "BABA": {"name": "Alibaba", "symbol": "BABA", "category": "stock", "icon": "🐘"},
     "SNDK": {"name": "Sandisk", "symbol": "SNDK", "category": "stock", "icon": "💾"},
+    # EntropyIO (`io`) pre-IPO — `dex` required so io:SNDK does not collide with xyz:SNDK.
+    "ANTH": {
+        "name": "Anthropic",
+        "symbol": "ANTH",
+        "category": "stock",
+        "icon": "🤖",
+        "isPreIpo": True,
+        "dex": "io",
+        # EntropyIO pre-IPO spec — https://docs.entropy.io/asset-directory/pre-ipo-assets
+        # Operator may revise L/U/OI on the same cadence as other HIP-3 caps.
+        "preIpoBoundLow": 300,
+        "preIpoBoundHigh": 4200,
+        "openInterestCapLabel": "3M",
+        "preIpoMcapQuote": True,
+    },
     "CRCL": {"name": "Circle", "symbol": "CRCL", "category": "stock", "icon": "🔄"},
     "CRWV": {"name": "CoreWeave", "symbol": "CRWV", "category": "stock", "icon": "☁️"},
     # SpaceX — live Nasdaq equity perp (IPO Jun 2026). Do NOT set isPreIpo.
@@ -1203,6 +1220,72 @@ ASSET_METADATA = {
 # Forex pairs are now in ASSET_METADATA above
 FOREX_METADATA = {k: v for k, v in ASSET_METADATA.items() if v.get("category") == "forex"}
 FOREX_COINS = set(FOREX_METADATA.keys())
+
+
+def _hip3_meta_dex(meta: dict) -> str:
+    """Catalog dex for an ASSET_METADATA row. Omitted `dex` means xyz (no io collision)."""
+    return str(meta.get("dex") or "xyz").lower()
+
+
+def _pre_ipo_catalog_fields(meta: dict | None) -> dict:
+    """Optional pre-IPO spec fields for API/UI (bounds, OI cap, market-cap quote)."""
+    if not meta or not meta.get("isPreIpo"):
+        return {}
+    out: dict = {}
+    lo, hi = meta.get("preIpoBoundLow"), meta.get("preIpoBoundHigh")
+    if lo is not None:
+        try:
+            out["preIpoBoundLow"] = float(lo)
+        except (TypeError, ValueError):
+            pass
+    if hi is not None:
+        try:
+            out["preIpoBoundHigh"] = float(hi)
+        except (TypeError, ValueError):
+            pass
+    cap = meta.get("openInterestCapLabel")
+    if cap:
+        out["openInterestCapLabel"] = str(cap)
+    if meta.get("preIpoMcapQuote"):
+        out["preIpoMcapQuote"] = True
+    return out
+
+
+def _lookup_hip3_metadata(symbol: str, dex_name: str) -> tuple[str | None, dict | None]:
+    """Match a universe coin to catalog metadata on this dex only."""
+    dex_l = (dex_name or "").lower()
+    symbol_u = (symbol or "").upper()
+    if not symbol_u:
+        return None, None
+    for key, meta in ASSET_METADATA.items():
+        if _hip3_meta_dex(meta) != dex_l:
+            continue
+        api_sym = str(meta.get("symbol") or key)
+        if api_sym.upper() == symbol_u or str(key).upper() == symbol_u:
+            return str(key), meta
+    return None, None
+
+
+def _prefix_catalog_hip3_coin(bare: str) -> str:
+    """Bare catalog ticker → `{dex}:{hlSymbol}`. Prefixed coins pass through."""
+    raw = (bare or "").strip()
+    if not raw:
+        return raw
+    if ":" in raw:
+        return raw
+    meta = ASSET_METADATA.get(raw) or ASSET_METADATA.get(raw.upper())
+    key = raw
+    if meta is None:
+        for k, v in ASSET_METADATA.items():
+            if v.get("displayName") == raw or v.get("symbol") == raw:
+                meta = v
+                key = k
+                break
+    if meta:
+        dex = _hip3_meta_dex(meta)
+        base = meta.get("symbol") or key
+        return f"{dex}:{base}"
+    return f"xyz:{raw}"
 
 # Crypto asset metadata
 CRYPTO_METADATA = {
@@ -1327,6 +1410,11 @@ class AssetInfo(BaseModel):
     isHip3: bool = True
     isSpotOnly: Optional[bool] = None
     isPreIpo: Optional[bool] = None
+    dex: Optional[str] = None
+    preIpoBoundLow: Optional[float] = None
+    preIpoBoundHigh: Optional[float] = None
+    openInterestCapLabel: Optional[str] = None
+    preIpoMcapQuote: Optional[bool] = None
     hasSpot: Optional[bool] = None
     spotSymbol: Optional[str] = None
     # HIP-3 fee params from HL meta (drive client fee UI; see hip3Fees.ts)
@@ -3405,29 +3493,16 @@ async def get_hip3_assets():
             
             for i, asset in enumerate(universe):
                 coin_name = asset.get("name", "")
-                # Extract the symbol (remove dex prefix like "xyz:")
+                # Extract the symbol (remove dex prefix like "xyz:" / "io:")
                 symbol = coin_name.split(":")[-1] if ":" in coin_name else coin_name
                 
                 # Get asset context (price data)
                 ctx = asset_ctxs[i] if i < len(asset_ctxs) else {}
                 
-                # Find metadata entry where symbol matches the API symbol
-                # The key in ASSET_METADATA is the display symbol, and the "symbol" field is the API symbol
-                meta_info = None
-                display_symbol = symbol
-                for key, meta in ASSET_METADATA.items():
-                    if meta.get("symbol") == symbol:
-                        meta_info = meta
-                        display_symbol = key  # Use the key as display symbol
-                        break
+                display_key, meta_info = _lookup_hip3_metadata(symbol, dex_name)
+                display_symbol = display_key or symbol
                 
-                # If not found by symbol, try direct lookup by key
-                if meta_info is None:
-                    meta_info = ASSET_METADATA.get(symbol)
-                    if meta_info:
-                        display_symbol = symbol
-                
-                # Skip assets that are not in ASSET_METADATA (user has removed them)
+                # Skip assets that are not in ASSET_METADATA for this dex
                 if meta_info is None:
                     continue
                 
@@ -3464,8 +3539,10 @@ async def get_hip3_assets():
                     change24h=change_24h,
                     isHip3=True,
                     isPreIpo=bool(meta_info.get("isPreIpo")),
+                    dex=dex_name,
                     growthMode=_normalize_growth_mode(asset.get("growthMode")),
                     deployerFeeScale=_normalize_deployer_fee_scale(asset.get("deployerFeeScale")),
+                    **_pre_ipo_catalog_fields(meta_info),
                 )
                 assets.append(asset_info)
                 
@@ -3703,28 +3780,17 @@ async def get_asset_detail(coin: str):
             raise HTTPException(status_code=500, detail=str(e))
 
     # Check if coin is a display symbol (e.g., "NDX100") that needs to be resolved to actual coin name
-    # Look up in ASSET_METADATA to find the actual symbol
     original_coin = coin
     if coin not in CRYPTO_COINS and coin not in FOREX_COINS and ":" not in coin:
-        # Check if it's a display symbol in ASSET_METADATA
-        if coin in ASSET_METADATA:
-            meta_info = ASSET_METADATA[coin]
-            # Get the actual symbol from metadata (e.g., "XYZ100" for "NDX100")
-            actual_symbol = meta_info.get("symbol", coin)
-            coin = actual_symbol  # Use actual symbol for API lookup
+        coin = _prefix_catalog_hip3_coin(coin)
     
     # Determine if this is a HIP-3 asset by checking prefix
     dex_name = ""
     if ":" in coin:
         dex_name = coin.split(":")[0]
-    elif any(coin.startswith(f"{dex}:") for dex in HIP3_DEXES):
-        dex_name = coin.split(":")[0]
     else:
-        # Try to find in HIP-3 dexes
-        for dex in HIP3_DEXES:
-            dex_name = dex
-            coin = f"{dex}:{coin}"
-            break
+        coin = _prefix_catalog_hip3_coin(coin)
+        dex_name = coin.split(":")[0] if ":" in coin else (HIP3_DEXES[0] if HIP3_DEXES else "xyz")
     
     try:
         data = await _get_meta_and_asset_ctxs(dex=dex_name)
@@ -3741,24 +3807,11 @@ async def get_asset_detail(coin: str):
                 ctx = asset_ctxs[i] if i < len(asset_ctxs) else {}
                 symbol = coin.split(":")[-1]
                 
-                # Find metadata entry where symbol matches the API symbol
-                # The key in ASSET_METADATA is the display symbol, and the "symbol" field is the API symbol
-                meta_info = None
-                display_symbol = symbol
-                for key, meta in ASSET_METADATA.items():
-                    if meta.get("symbol") == symbol:
-                        meta_info = meta
-                        display_symbol = key  # Use the key as display symbol
-                        break
+                display_key, meta_info = _lookup_hip3_metadata(symbol, dex_name)
+                display_symbol = display_key or symbol
                 
                 if meta_info is None:
-                    # Fallback: try direct lookup by symbol
-                    meta_info = ASSET_METADATA.get(symbol, {
-                        "name": symbol,
-                        "symbol": symbol,
-                        "category": "other"
-                    })
-                    display_symbol = meta_info.get("displayName", meta_info.get("symbol", symbol))
+                    continue
                 
                 # Use displayName if available (for XYZ100 -> NDX100, CL -> OIL, etc.)
                 if meta_info.get("displayName"):
@@ -3800,10 +3853,12 @@ async def get_asset_detail(coin: str):
                     "change24h": change_24h,
                     "isHip3": True,
                     "isPreIpo": bool(meta_info.get("isPreIpo")),
+                    "dex": dex_name,
                     "marginMode": asset.get("marginMode"),
                     "growthMode": _normalize_growth_mode(asset.get("growthMode")),
                     "deployerFeeScale": _normalize_deployer_fee_scale(asset.get("deployerFeeScale")),
-                    "nextEarnings": next_earnings
+                    "nextEarnings": next_earnings,
+                    **_pre_ipo_catalog_fields(meta_info),
                 }
         
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -4008,6 +4063,60 @@ def _gemini_clock_context() -> Dict[str, Any]:
     }
 
 
+# Ask AI ticker collisions — Google Search often resolves these to a different issuer.
+_GEMINI_ISSUER_HINTS: Dict[str, str] = {
+    "ANTH": (
+        "ANTH on this venue is Anthropic PBC, the American AI lab that builds Claude "
+        "(founded by Dario Amodei). Search 'Anthropic AI', 'Anthropic Claude', "
+        "'Anthropic valuation', 'Anthropic funding'. Do not analyze Anthera "
+        "Pharmaceuticals, Anthracite, or any other listed/OTC name that uses ANTH."
+    ),
+}
+
+
+def _asset_meta_for_symbol(symbol: str) -> Optional[Dict[str, Any]]:
+    """Catalog row for a display/HL symbol (ASSET_METADATA key, symbol, or displayName)."""
+    s = (symbol or "").upper()
+    if not s:
+        return None
+    meta = ASSET_METADATA.get(s)
+    if meta:
+        return meta
+    for row in ASSET_METADATA.values():
+        if str(row.get("displayName", "")).upper() == s or str(row.get("symbol", "")).upper() == s:
+            return row
+    return None
+
+
+def _gemini_instrument_context(symbol: str) -> Dict[str, Any]:
+    """Company name + pre-IPO disambiguation so Search grounding does not pick a namesake ticker."""
+    meta = _asset_meta_for_symbol(symbol)
+    name = str((meta or {}).get("name") or symbol).strip() or symbol
+    label = symbol if name.upper() == symbol.upper() else f"{symbol} ({name})"
+    is_pre_ipo = bool((meta or {}).get("isPreIpo"))
+    dex = _hip3_meta_dex(meta) if meta else ""
+    lines = [
+        f"- You are analyzing {label}. Google Search must target that issuer/asset. "
+        "If a hit is a different company that merely shares a ticker or abbreviation, discard it."
+    ]
+    if is_pre_ipo:
+        dex_bit = f" on the {dex} DEX" if dex else ""
+        lines.append(
+            f"- {symbol} is a Hyperliquid HIP-3 pre-IPO perpetual{dex_bit} for the private "
+            f"company {name}. It is not a listed US cash equity. Do not use NYSE/Nasdaq/OTC "
+            f"quotes, options flow, or SEC filings for ticker {symbol} — those belong to another issuer."
+        )
+    hint = _GEMINI_ISSUER_HINTS.get(symbol.upper())
+    if hint:
+        lines.append(f"- {hint}")
+    return {
+        "label": label,
+        "name": name,
+        "is_pre_ipo": is_pre_ipo,
+        "identity_rules": "\n    ".join(lines),
+    }
+
+
 def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") -> str:
     """
     Constructs a targeted prompt for Scalp/Swing verdicts using Google Search.
@@ -4016,6 +4125,8 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
     nearby = clock["nearby_et_dates"]
     last_cash = clock["last_cash_close_label"]
     xyz_mode = "external (underlying-linked)" if clock["xyz_external"] else "internal / weekend pricing"
+    ident = _gemini_instrument_context(symbol)
+    subject = ident["label"]
 
     stock_session_rules = ""
     if category in ("stock", "index"):
@@ -4032,7 +4143,7 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
     # BASE SYSTEM INSTRUCTION - Focus shifted to bias and timeframe
     base_instruction = f"""
     Today is {clock["utc_stamp"]} / {clock["et_stamp"]}. You are an elite Multi-Asset Proprietary Trader.
-    Your GOAL: Provide a high-conviction directional bias (Long/Short/Neutral) for {symbol} based on live Google Search data.
+    Your GOAL: Provide a high-conviction directional bias (Long/Short/Neutral) for {subject} based on live Google Search data.
     
     DATA FRESHNESS RULE (CRITICAL):
     - Always try to find data for today first.
@@ -4052,6 +4163,8 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
     - Focus on the last 24-48 hours for Scalps and 7 days for Swings.
     - Be decisive. Avoid "it could go both ways" unless the data is perfectly neutral.
     - Do not hallucinate. If search fails for all dates, state "Data Gap".
+    INSTRUMENT IDENTITY:
+    {ident["identity_rules"]}
     """
 
     # CATEGORY SPECIFIC METRICS - Updated for "Verdict" logic
@@ -4063,6 +4176,14 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
         4. Macro: BTC/ETH correlation strength and DXY impact.
         """
     
+    elif category == "stock" and ident["is_pre_ipo"]:
+        metrics = """
+        1. Private-company news for the named issuer: funding, valuation marks, secondaries, product launches.
+        2. HIP-3 perp price vs operator bounds / market-cap quote convention — not a listed cash last print.
+        3. Sector context only; never substitute a different listed ticker that shares this symbol.
+        4. Catalysts: company-specific headlines (not options/dark-pool prints for a listed namesake).
+        """
+
     elif category == "stock":
         metrics = """
         1. Price Action: Regular-session move vs HIP-3 perp; mention pre-market/after-hours only if the clock above says those windows are active. Relative strength vs SPY/QQQ.
@@ -4101,11 +4222,11 @@ def _build_gemini_market_prompt(symbol: str, category: str, lang: str = "en") ->
     prompt = f"""
     {base_instruction}
     
-    Analyze {symbol} based on:
+    Analyze {subject} based on:
     {metrics}
     
     Output Format (STRICT):
-    {symbol} Market Verdict (as of [date of most recent data used])
+    {subject} Market Verdict (as of [date of most recent data used])
 
     1. Executive Verdict
     - **Scalp Bias (15m-4h):** [BULLISH / BEARISH / NEUTRAL]
@@ -4196,29 +4317,25 @@ async def get_gemini_analysis(
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured")
     
     symbol = symbol.upper()
+    meta = _asset_meta_for_symbol(symbol)
     
     # Determine category if not provided
     if not category:
         if symbol in CRYPTO_COINS:
             category = "crypto"
-        elif symbol in ASSET_METADATA:
-            category = ASSET_METADATA[symbol].get("category", "stock")
+        elif meta:
+            category = meta.get("category", "stock")
         elif symbol in FOREX_METADATA:
             category = "forex"
         else:
-            # Try to find by displayName (e.g., "OIL" -> CL)
-            found_category = None
-            for key, meta in ASSET_METADATA.items():
-                if meta.get("displayName", "").upper() == symbol or meta.get("symbol", "").upper() == symbol:
-                    found_category = meta.get("category")
-                    break
-            category = found_category or "stock"  # default for HIP-3 assets
+            category = "stock"  # default for HIP-3 assets
     
     effective_lang = (lang or "en").lower().strip()
+    issuer_name = str((meta or {}).get("name") or symbol)
 
     # Check cache first (shared across all users, 4-hour TTL)
     et_day = datetime.now(timezone.utc).astimezone(_NY_TZ).date().isoformat()
-    cache_key = f"{symbol}:{category}:{effective_lang}:{et_day}"
+    cache_key = f"{symbol}:{issuer_name}:{category}:{effective_lang}:{et_day}"
     cached = None
     is_cache_fresh = False
     
@@ -4575,8 +4692,8 @@ async def get_candles(
         # and break the lookup. Leave coin as-is.
         pass
     elif ":" not in coin and coin not in CRYPTO_COINS and coin not in FOREX_COINS:
-        # Only auto-prefix HIP-3 assets. Crypto/forex live on the main exchange and should remain unprefixed.
-        coin = f"xyz:{coin}"
+        # Auto-prefix from catalog dex (ANTH → io:ANTH). Unlisted tickers stay xyz: for back-compat.
+        coin = _prefix_catalog_hip3_coin(coin)
     elif coin in CRYPTO_COINS or coin in FOREX_COINS:
         # Resolve to actual main-exchange universe name (case-insensitive)
         meta_data = await _get_meta_and_asset_ctxs(dex=None)
@@ -5944,13 +6061,22 @@ async def _validate_and_resolve_symbol(symbol: str) -> tuple[str, float | None]:
     Returns (resolved_symbol, current_price) or raises HTTPException if invalid.
     
     - Crypto (BTC, ETH, SOL, etc.) -> Main exchange (HIP-2), no suffix
-    - Everything else (stocks, forex, commodities) -> HIP-3 xyz dex format
+    - Everything else -> HIP-3 `{COIN}:{dex}` storage (e.g. GOLD:xyz, ANTH:io)
     """
-    symbol = symbol.upper().strip()
-    
-    # Strip any dex suffix if user included it (xyz, Trade.XYZ, etc.)
-    if ":" in symbol:
-        symbol = symbol.split(":")[0]
+    raw = symbol.strip()
+    preferred_dex: str | None = None
+    base = raw
+    if ":" in raw:
+        left, right = raw.split(":", 1)
+        if is_hip3_dex_name(left):
+            preferred_dex = left.lower()
+            base = right
+        elif is_hip3_dex_name(right):
+            preferred_dex = right.lower()
+            base = left
+        else:
+            base = left
+    symbol = base.upper().strip()
     
     try:
         # First, check main exchange (crypto only - HIP-2) — cached
@@ -5969,8 +6095,14 @@ async def _validate_and_resolve_symbol(symbol: str) -> tuple[str, float | None]:
                     price = float(mark_px) if mark_px else None
                     return symbol, price
         
-        # Not on main exchange, check HIP-3 dexes — cached
-        for hip3_dex in HIP3_DEXES:  # ["xyz"]
+        # Not on main exchange, check HIP-3 dexes — preferred dex first (io:ANTH).
+        search_dexes: list[str] = []
+        if preferred_dex:
+            search_dexes.append(preferred_dex)
+        for hip3_dex in HIP3_DEXES:
+            if hip3_dex not in search_dexes:
+                search_dexes.append(hip3_dex)
+        for hip3_dex in search_dexes:
             hip3_data = await _get_meta_and_asset_ctxs(dex=hip3_dex)
             
             if hip3_data and len(hip3_data) >= 2:
@@ -5983,8 +6115,12 @@ async def _validate_and_resolve_symbol(symbol: str) -> tuple[str, float | None]:
                     # HIP-3 assets come back as "xyz:GOLD" format - extract base symbol
                     coin_base = coin.split(":")[-1] if ":" in coin else coin
                     if coin_base.upper() == symbol:
+                        # Allowlist only — skip unlisted HIP-3 names (e.g. io:SNDK).
+                        _catalog_key, catalog_meta = _lookup_hip3_metadata(coin_base, hip3_dex)
+                        if catalog_meta is None:
+                            continue
                         # Found on HIP-3 (stocks/forex/commodities)
-                        # Store as SYMBOL:dex format (e.g., GOLD:xyz)
+                        # Store as SYMBOL:dex format (e.g., GOLD:xyz, ANTH:io)
                         full_symbol = f"{coin_base}:{hip3_dex}"
                         mark_px = hip3_ctxs[i].get("markPx") if i < len(hip3_ctxs) else None
                         price = float(mark_px) if mark_px else None
@@ -7012,18 +7148,18 @@ async def _fetch_current_prices(symbols: List[str]) -> Dict[str, float]:
     
     Handles both formats:
     - Simple symbols (BTC, GOLD) - checks main exchange first, then HIP-3
-    - Full format (AAPL:xyz) - checks specific HIP-3 dex
+    - Full format (AAPL:xyz, ANTH:io, io:ANTH) - checks that HIP-3 dex
     """
     prices = {}
     
     # Normalize symbols: extract base symbol for lookup
-    # "AAPL:xyz" -> base="AAPL", dex="xyz"
+    # "AAPL:xyz" / "io:ANTH" -> base ticker + dex name
     # "BTC" -> base="BTC", dex=None
     symbol_map: Dict[str, tuple[str, Optional[str]]] = {}
     for s in symbols:
         if ":" in s:
-            parts = s.split(":")
-            symbol_map[s] = (parts[0], parts[1])
+            dex, base = split_hip3_coin(s)
+            symbol_map[s] = (base, dex)
         else:
             symbol_map[s] = (s, None)
     
@@ -7155,22 +7291,8 @@ def _send_push_notification(push_token: str, title: str, body: str, data: Option
 
 
 def _alert_display_symbol(symbol: str) -> str:
-    """Coin shown in alert push title/body. Leaves stored/matching symbols unchanged.
-
-    HIP-3 rows may be `SNDK:xyz` (create-alert storage) or `xyz:SNDK` (HL coin form).
-    Strip the known dex on either side; if that would empty the label, keep the original.
-    """
-    raw = (symbol or "").strip()
-    if not raw or ":" not in raw:
-        return raw
-    left, right = raw.split(":", 1)
-    left, right = left.strip(), right.strip()
-    dexes = {d.lower() for d in HIP3_DEXES}
-    if left.lower() in dexes:
-        return right or raw
-    if right.lower() in dexes:
-        return left or raw
-    return raw
+    """Coin shown in alert push title/body. Leaves stored/matching symbols unchanged."""
+    return hip3_display_symbol(symbol)
 
 
 async def _check_and_trigger_alerts():

@@ -3248,6 +3248,22 @@ export default function AssetDetailScreen() {
           <TouchableOpacity style={styles.modalCard} activeOpacity={1}>
             <Text style={styles.modalTitle}>{t('trading.preIpoTitle')}</Text>
             <Text style={styles.modalText}>{t('trading.preIpoDescription')}</Text>
+            {asset.preIpoMcapQuote === true ? (
+              <Text style={styles.modalText}>{t('trading.preIpoMcapQuote')}</Text>
+            ) : null}
+            {Number.isFinite(asset.preIpoBoundLow as number) && Number.isFinite(asset.preIpoBoundHigh as number) ? (
+              <Text style={styles.modalText}>
+                {t('trading.preIpoBounds', {
+                  low: Number(asset.preIpoBoundLow).toLocaleString('en-US'),
+                  high: Number(asset.preIpoBoundHigh).toLocaleString('en-US'),
+                })}
+              </Text>
+            ) : null}
+            {asset.openInterestCapLabel ? (
+              <Text style={styles.modalText}>
+                {t('trading.preIpoOiCap', { cap: asset.openInterestCapLabel })}
+              </Text>
+            ) : null}
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.modalPrimary} onPress={() => setShowPreIpoModal(false)}>
                 <Text style={styles.modalPrimaryText}>{t('common.gotIt')}</Text>

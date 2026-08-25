@@ -12,6 +12,7 @@ import React, {
 import { AppState, AppStateStatus } from 'react-native';
 import { getHlWsUrl, onTradingEnvChange } from '../lib/hlEnv';
 import { normalizeDexPriceKey } from '../lib/priceKeys';
+import { enabledHip3Dexes } from '../lib/hip3Dexes';
 const RECONNECT_DELAY = 3000;
 const HEARTBEAT_INTERVAL = 30000;
 const PRICE_THROTTLE_MS = 500; // Throttle price updates to max 2 per second
@@ -194,7 +195,7 @@ interface AssetCtxRefContextType {
   assetCtxsRef: React.MutableRefObject<Record<string, AssetCtxData>>;
 }
 const AssetCtxRefContext = createContext<AssetCtxRefContextType | undefined>(undefined);
-const HIP3_DEXES = ['xyz'];
+const HIP3_DEXES = enabledHip3Dexes();
 
 function sendOrderBookSubscription(ws: WebSocket, method: 'subscribe' | 'unsubscribe', coin: string) {
   ws.send(JSON.stringify({

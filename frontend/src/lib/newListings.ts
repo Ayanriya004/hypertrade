@@ -6,6 +6,7 @@ import type { Asset } from './api';
  * (scoped to the active parent tab).
  */
 export const NEWLY_LISTED_SYMBOLS: readonly string[] = [
+  'ANTH',
   'SPCX',
   'UNITREE',
   'CXMT',

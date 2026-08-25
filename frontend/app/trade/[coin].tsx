@@ -446,9 +446,9 @@ export default function TradeScreen() {
     }
     const rawCoin = asset?.coin || '';
     if (rawCoin.includes(':')) return rawCoin;
-    if (asset?.isHip3) return normalizeDexPriceKey(asset?.symbol || rawCoin, 'xyz');
+    if (asset?.isHip3) return normalizeDexPriceKey(asset?.symbol || rawCoin, asset?.dex);
     return asset?.symbol || rawCoin;
-  }, [asset?.coin, asset?.isHip3, asset?.symbol, marketType, spotAssetData?.spotSymbol]);
+  }, [asset?.coin, asset?.dex, asset?.isHip3, asset?.symbol, marketType, spotAssetData?.spotSymbol]);
 
   const { data: userFees } = useQuery({
     queryKey: ['hl_user_fees', tradingAddress],
@@ -1004,14 +1004,14 @@ export default function TradeScreen() {
       ...(filteredOpenOrders ?? []).map((o: any) => String(o.coin)),
     ];
     if (orderBookCoin) coins.push(String(orderBookCoin));
-    getPriceLookupKeys({ coin: asset?.coin, symbol: asset?.symbol, isHip3: asset?.isHip3 === true }).forEach((key) => coins.push(key));
+    getPriceLookupKeys({ coin: asset?.coin, symbol: asset?.symbol, isHip3: asset?.isHip3 === true, dex: asset?.dex }).forEach((key) => coins.push(key));
     if (marketType === 'spot' && spotAssetData?.spotSymbol) {
       coins.push(String(spotAssetData.spotSymbol));
     }
     const uniq = Array.from(new Set(coins)).filter(Boolean) as string[];
     uniq.sort();
     return uniq;
-  }, [asset?.coin, asset?.isHip3, asset?.symbol, filteredOpenOrders, filteredPositions, marketType, orderBookCoin, spotAssetData?.spotSymbol]);
+  }, [asset?.coin, asset?.dex, asset?.isHip3, asset?.symbol, filteredOpenOrders, filteredPositions, marketType, orderBookCoin, spotAssetData?.spotSymbol]);
 
   const livePrices = useLivePrices(liveCoins);
   // `activeAssetCtx` is perp-only. Spot mode already skips, but spot-only

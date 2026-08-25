@@ -127,7 +127,7 @@ Details: [HL_BUILDER.md](./HL_BUILDER.md).
 
 ## 7. Catalog / niche asset set
 
-HyperTrade does **not** auto-list every HL or HIP-3 market. To add or remove tickers (core crypto vs XYZ stocks/FX/commodities), follow **[Listing a new asset](./HL_BUILDER.md#listing-a-new-asset-builder-checklist)** — backend `CRYPTO_METADATA` / `ASSET_METADATA`, logos, home order, optional Supabase fundamentals.
+HyperTrade does **not** auto-list every HL or HIP-3 market. To add or remove tickers (core crypto vs XYZ / EntropyIO / other HIP-3), follow **[Listing a new asset](./HL_BUILDER.md#listing-a-new-asset-builder-checklist)** — backend `CRYPTO_METADATA` / `ASSET_METADATA` (optional `dex`, default `xyz`), logos, home order, optional Supabase fundamentals. Subscribe/fund dexes are `HIP3_ENABLED_DEXES` / `EXPO_PUBLIC_HIP3_ENABLED_DEXES` (default `xyz,io`); catalog allowlist is separate so `io:SNDK` cannot replace `xyz:SNDK`.
 
 ## 8. Suggested niche forks
 

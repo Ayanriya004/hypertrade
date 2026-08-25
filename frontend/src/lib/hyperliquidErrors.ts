@@ -30,6 +30,28 @@ export function humanizeHyperliquidError(raw: string): { title: string; message:
     };
   }
 
+  // HL OI-cap rejects. Live `error` strings are prose; historical statuses
+  // use the camelCase types. See
+  // https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/error-responses
+  //   PositionIncreaseAtOpenInterestCap / PositionFlipAtOpenInterestCap
+  //     "Order would increase open interest while open interest is capped"
+  //   TooAggressiveAtOpenInterestCap
+  //     "Order rejected due to price more aggressive than oracle while at open interest cap"
+  //   OpenInterestIncrease
+  //     "Order would increase open interest too quickly"
+  if (
+    /openInterestCap/i.test(msg) ||
+    /OpenInterestIncrease/i.test(msg) ||
+    /open interest is capped/i.test(msg) ||
+    /at open interest cap/i.test(msg) ||
+    /increase open interest too quickly/i.test(msg)
+  ) {
+    return {
+      title: t('errors.hyperliquid.openInterestCapTitle'),
+      message: t('errors.hyperliquid.openInterestCapMessage'),
+    };
+  }
+
   // Common order rejections (from HL docs / SDK enums)
   const map: Array<{ key: string; titleKey: string; messageKey: string }> = [
     { key: 'tickRejected', titleKey: 'errors.hyperliquid.tickRejectedTitle', messageKey: 'errors.hyperliquid.tickRejectedMessage' },
@@ -51,7 +73,6 @@ export function humanizeHyperliquidError(raw: string): { title: string; message:
     { key: 'reduceOnlyRejected', titleKey: 'errors.hyperliquid.reduceOnlyRejectedTitle', messageKey: 'errors.hyperliquid.reduceOnlyRejectedMessage' },
     { key: 'minTradeNtlRejected', titleKey: 'errors.hyperliquid.minTradeNtlRejectedTitle', messageKey: 'errors.hyperliquid.minTradeNtlRejectedMessage' },
     { key: 'oracleRejected', titleKey: 'errors.hyperliquid.oracleRejectedTitle', messageKey: 'errors.hyperliquid.oracleRejectedMessage' },
-    { key: 'openInterestCap', titleKey: 'errors.hyperliquid.openInterestCapTitle', messageKey: 'errors.hyperliquid.openInterestCapMessage' },
   ];
 
   for (const m of map) {

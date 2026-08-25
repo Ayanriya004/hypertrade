@@ -1,3 +1,5 @@
+import { hip3DisplaySymbol } from './hip3Dexes';
+
 // Overrides applied to the raw HL/exchange symbol when rendering.
 //
 //   • Perp aliases: `CL → OIL`, `XYZ100 → NDX100` — HL keeps its internal
@@ -47,7 +49,7 @@ export function formatDisplaySymbol(
     return getDisplaySymbolOverride(base) ?? base ?? rawCoin;
   }
 
-  const stripped = rawCoin.includes(':') ? rawCoin.split(':').slice(1).join(':') : rawCoin;
+  const stripped = rawCoin.includes(':') ? hip3DisplaySymbol(rawCoin) : rawCoin;
   return getDisplaySymbolOverride(stripped) ?? stripped;
 }
 

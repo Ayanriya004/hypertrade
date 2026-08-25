@@ -435,8 +435,10 @@ MODEL_REGISTRY: Dict[str, List[str]] = {
     "claude": ["claude-opus-5", "claude-opus-4-8"],
 }
 ALLOWED_MODEL_PROVIDERS = set(MODEL_REGISTRY.keys())
-# HIP-3 builder dexes agents may trade (mirror worker SUPPORTED_HIP3_DEXES).
-SUPPORTED_HIP3_DEXES = {"xyz"}
+# HIP-3 builder dexes agents may trade. Protocol is `{dex}:{COIN}` for any
+# deployer. Tickers still must be in ASSET_METADATA for that dex (so io:SNDK
+# cannot steal xyz:SNDK) and not excluded / pre-IPO.
+SUPPORTED_HIP3_DEXES = {"xyz", "io"}
 # HIP-3 coin parts agents may NOT manage — no meaningful CoinGlass/options/
 # underlier stack (or deferred categories). Keep in sync with
 # `AI_AGENT_HIP3_EXCLUDED_COINS` in `frontend/src/lib/aiAgentHip3Exclude.ts`.
@@ -448,6 +450,7 @@ AI_AGENT_HIP3_EXCLUDED_COINS = frozenset({
     "BOT",
     "CXMT",
     "UNITREE",
+    "ANTH",  # EntropyIO pre-IPO — no listed options underlier
     "EUR",
     "JPY",
     "PLATINUM",
@@ -542,6 +545,32 @@ def normalize_agent_display_name(
     return raw
 
 
+def _hip3_catalog_row(coin: str) -> tuple[str | None, bool]:
+    """Return `(catalog_dex, is_pre_ipo)` for a HIP-3 coin part.
+
+    Late-imports `ASSET_METADATA` to avoid a module-load cycle with server.py.
+    Missing row → `(None, False)` so unlisted `io:SNDK` cannot sneak through.
+    """
+    try:
+        from server import ASSET_METADATA  # type: ignore
+    except Exception:
+        return None, False
+    coin_u = (coin or "").upper()
+    if not coin_u:
+        return None, False
+    meta = ASSET_METADATA.get(coin_u)
+    if meta is None:
+        for key, row in ASSET_METADATA.items():
+            api_sym = str((row or {}).get("symbol") or key)
+            if api_sym.upper() == coin_u or str(key).upper() == coin_u:
+                meta = row
+                break
+    if not meta:
+        return None, False
+    dex = str(meta.get("dex") or "xyz").lower()
+    return dex, bool(meta.get("isPreIpo"))
+
+
 def validate_agent_config(
     config: Dict[str, Any], *, mode: str = "copilot"
 ) -> Dict[str, Any]:
@@ -578,7 +607,14 @@ def validate_agent_config(
                 raise AiAgentError(f"HIP-3 dex not supported: {dex}")
             if not coin.isalnum():
                 raise AiAgentError(f"Invalid symbol: {sym}")
-            if coin in AI_AGENT_HIP3_EXCLUDED_COINS:
+            catalog_dex, is_pre_ipo = _hip3_catalog_row(coin)
+            if catalog_dex is None:
+                raise AiAgentError(f"{coin} is not in the HyperTrade catalog")
+            if catalog_dex != dex:
+                raise AiAgentError(
+                    f"{coin} is listed on {catalog_dex}, not {dex}"
+                )
+            if is_pre_ipo or coin in AI_AGENT_HIP3_EXCLUDED_COINS:
                 raise AiAgentError(
                     f"{coin} is not available for AI agents "
                     "(insufficient market data for autonomous trading)"

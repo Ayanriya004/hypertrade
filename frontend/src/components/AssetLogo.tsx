@@ -2,13 +2,12 @@ import React from 'react';
 import { View, Text, StyleSheet, Image } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
+import { hip3DisplaySymbol } from '../lib/hip3Dexes';
 
-/** Strip HIP-3 dex prefix so `xyz:TSLA` resolves like `TSLA`. */
+/** Strip HIP-3 dex prefix so `xyz:TSLA` / `io:ANTH` resolve like `TSLA` / `ANTH`. */
 function logoLookupKey(symbol: string): string {
-  const raw = (symbol || '').trim().toUpperCase();
-  if (!raw) return 'DEFAULT';
-  const i = raw.indexOf(':');
-  return i >= 0 ? raw.slice(i + 1) : raw;
+  const raw = hip3DisplaySymbol(symbol || '').trim().toUpperCase();
+  return raw || 'DEFAULT';
 }
 
 const ASSET_IMAGES: Record<string, any> = {
@@ -53,6 +52,7 @@ const ASSET_IMAGES: Record<string, any> = {
   SMSN: require('../../assets/images/symbols/samsung.webp'),
   UNITREE: require('../../assets/images/symbols/unitree.webp'),
   MRNA: require('../../assets/images/symbols/mrna.webp'),
+  ANTH: require('../../assets/images/symbols/anth.webp'),
 
   // Index/ETFs
   NDX100: require('../../assets/images/symbols/ndx100.webp'),
@@ -162,6 +162,7 @@ const ASSET_LOGOS: Record<string, {
   LITE: { type: 'icon', icon: 'logo-lite', iconSet: 'ionicons', bgColor: '#005288', textColor: '#fff' },
   UNITREE: { type: 'icon', icon: 'logo-unitree', iconSet: 'ionicons', bgColor: '#005288', textColor: '#fff' },
   MRNA: { type: 'icon', icon: 'logo-mrna', iconSet: 'ionicons', bgColor: '#005288', textColor: '#fff' },
+  ANTH: { type: 'text', text: 'A', bgColor: '#D97757', textColor: '#fff' },
   // Commodities
   GOLD: { type: 'icon', icon: 'cube', iconSet: 'material', bgColor: '#FFD700', textColor: '#8B4513' },
   SILVER: { type: 'icon', icon: 'cube', iconSet: 'material', bgColor: '#C0C0C0', textColor: '#2F4F4F' },

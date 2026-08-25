@@ -7,6 +7,7 @@ import {
   isGrowthModeEnabled,
   parseDeployerFeeScale,
 } from './hip3Fees';
+import { enabledHip3Dexes } from './hip3Dexes';
 import { getGlobalBuilderFee } from '../providers/BuilderConfigProvider';
 import {
   getHlInfoUrl,
@@ -161,7 +162,7 @@ function _bucket(): EnvBucket {
 }
 
 const META_CACHE_TTL_MS = 5 * 60 * 1000;
-const HIP3_DEXES = ['xyz'];
+const HIP3_DEXES = enabledHip3Dexes();
 const LEVERAGE_CACHE_TTL_MS = 60_000;
 
 // Drop everything tied to the env that we're leaving. The new env's bucket

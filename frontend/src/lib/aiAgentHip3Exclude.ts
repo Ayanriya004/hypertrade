@@ -6,6 +6,9 @@
  * Coin part only (e.g. `PURRDAT` for `xyz:PURRDAT`). DRAM + EWY are
  * intentionally kept (real US ETFs with options). GOLD + SILVER are
  * kept (Massive GLD/SLV proxy options + DXY/EMA metals stack).
+ *
+ * Pre-IPO (`isPreIpo`, e.g. `io:ANTH`) is also blocked in the picker even
+ * if a coin is missing here.
  */
 export const AI_AGENT_HIP3_EXCLUDED_COINS: ReadonlySet<string> = new Set([
   // Stocks — no usable US underlier / options identity
@@ -14,6 +17,8 @@ export const AI_AGENT_HIP3_EXCLUDED_COINS: ReadonlySet<string> = new Set([
   'BOT',
   'CXMT',
   'UNITREE',
+  // EntropyIO pre-IPO (market-cap quote, no listed options underlier)
+  'ANTH',
   // Forex — deferred
   'EUR',
   'JPY',
@@ -31,6 +36,13 @@ export const AI_AGENT_HIP3_EXCLUDED_COINS: ReadonlySet<string> = new Set([
   'XYZ100',
   'SP500',
 ]);
+
+/**
+ * HIP-3 dexs the worker will trade. Protocol identity is `{dex}:{COIN}` for
+ * any deployer. Catalog + exclude + `isPreIpo` still gate which tickers
+ * appear; adding a listed `io:*` row to `ASSET_METADATA` is enough.
+ */
+export const AI_AGENT_SUPPORTED_HIP3_DEXES: ReadonlySet<string> = new Set(['xyz', 'io']);
 
 /** True when a HIP-3 (or bare) coin is blocked for AI agents. */
 export function isAiAgentHip3Excluded(coinOrSymbol: string): boolean {

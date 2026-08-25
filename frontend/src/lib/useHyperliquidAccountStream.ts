@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { getHlInfoClient, getSpotClearinghouseState } from './hyperliquid';
+import { enabledHip3Dexes } from './hip3Dexes';
 import { getHlWsUrl, onTradingEnvChange } from './hlEnv';
 const WS_CONNECTING_TIMEOUT_MS = 15_000;
 const REST_FALLBACK_AFTER_MS = 8_000;
@@ -13,9 +14,9 @@ const MIN_REST_HYDRATE_INTERVAL_MS = 4_000;
 const STALE_ACCOUNT_MESSAGE_MS = 20_000;
 const STALENESS_CHECK_INTERVAL_MS = 5_000;
 
-// HIP-3 dexes to include in aggregated perp totals. Must stay in sync with HIP3_DEXES in
-// `hyperliquid.ts` so WS and REST cover the same universe (otherwise home ↔ profile drift).
-const HIP3_DEXES = ['xyz'] as const;
+// HIP-3 dexes to include in aggregated perp totals. Must stay in sync with
+// `enabledHip3Dexes()` in hip3Dexes.ts / hyperliquid.ts.
+const HIP3_DEXES = enabledHip3Dexes();
 
 type Hex = `0x${string}`;
 

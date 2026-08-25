@@ -148,15 +148,15 @@ const AssetCardComponent: React.FC<AssetCardProps> = ({
         ) : null}
         <AssetLogo symbol={asset.symbol} size={40} />
         <View style={styles.nameContainer}>
-          <Text 
-            style={styles.symbol} 
+          <Text
+            style={styles.symbol}
             numberOfLines={1}
             allowFontScaling={false}
           >
             {asset.symbol}
           </Text>
-          <Text 
-            style={styles.name} 
+          <Text
+            style={styles.name}
             numberOfLines={1}
             allowFontScaling={false}
           >

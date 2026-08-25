@@ -17,9 +17,9 @@ from typing import Any, Callable, Dict, List, Optional, Awaitable, Set, Tuple
 # and concurrent visitors share one HL/Supabase rebuild.
 SHOWCASE_CACHE_TTL_SEC = 28.0
 BASELINE_USD = 1000.0
-# Always probe HIP-3 xyz so a manual xyz:* on a main-dex agent still surfaces
+# Always probe these HIP-3 dexs so a listed xyz:* / io:* on an agent surfaces
 # (mirrors backend/ai_agents.py SUPPORTED_HIP3_DEXES).
-_SHOWCASE_HIP3_DEXES = ("xyz",)
+_SHOWCASE_HIP3_DEXES = ("xyz", "io")
 
 # Skips we surface in Recent decisions (loss pause, risk gates, data outages,
 # manual-open sideline, paused/stopped). Omit noisy per-cycle skips like

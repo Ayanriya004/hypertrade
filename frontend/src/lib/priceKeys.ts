@@ -1,27 +1,13 @@
+import {
+  isHip3DexName,
+  normalizeHip3Coin,
+  splitHip3Symbol,
+} from './hip3Dexes';
+
 export type PriceEntry = { price?: string | number | null } | string | number | null | undefined;
 
-const KNOWN_HIP3_DEXES = new Set(['xyz', 'trade.xyz']);
-
-function splitHip3Symbol(value: string, fallbackDex = 'xyz') {
-  if (!value.includes(':')) {
-    return { dex: fallbackDex, base: value };
-  }
-  const [left, right] = value.split(':');
-  const leftNorm = left.toLowerCase();
-  const rightNorm = right.toLowerCase();
-  if (KNOWN_HIP3_DEXES.has(leftNorm)) {
-    return { dex: left, base: right };
-  }
-  if (KNOWN_HIP3_DEXES.has(rightNorm)) {
-    return { dex: right, base: left };
-  }
-  return { dex: fallbackDex, base: right || left };
-}
-
 export function normalizeDexPriceKey(coin: string, dex?: string | null) {
-  const fallbackDex = dex || 'xyz';
-  const parsed = splitHip3Symbol(coin, fallbackDex);
-  return `${parsed.dex}:${parsed.base}`;
+  return normalizeHip3Coin(coin, dex);
 }
 
 export function getPriceLookupKeys(input: {
@@ -32,17 +18,17 @@ export function getPriceLookupKeys(input: {
 }) {
   const coin = input.coin ? String(input.coin) : '';
   const symbol = input.symbol ? String(input.symbol) : '';
-  const parsedCoin = coin ? splitHip3Symbol(coin, input.dex || 'xyz') : null;
-  const dex = input.dex || parsedCoin?.dex || 'xyz';
-  const hip3 = input.isHip3 === true || coin.includes(':');
+  const parsedCoin = coin ? splitHip3Symbol(coin, input.dex) : null;
+  const dex = input.dex || parsedCoin?.dex || undefined;
+  const hip3 = input.isHip3 === true || coin.includes(':') || (!!dex && isHip3DexName(dex));
   const keys: string[] = [];
   const push = (v?: string | null) => {
     if (v && !keys.includes(v)) keys.push(v);
   };
 
   if (hip3) {
-    if (coin) push(normalizeDexPriceKey(coin, dex));
-    if (symbol) push(normalizeDexPriceKey(symbol, dex));
+    if (coin) push(normalizeHip3Coin(coin, dex));
+    if (symbol) push(normalizeHip3Coin(symbol, dex));
     return keys;
   }
 

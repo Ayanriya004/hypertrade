@@ -62,6 +62,7 @@ Optional everywhere: market-data keys, demo/testnet grants, AppsFlyer, Apple rev
 | Variable | Purpose |
 |----------|---------|
 | `BUILDER_ADDRESS` / `BUILDER_FEE` | Override HyperTrade defaults in `server.py` / `/builder-config`. Keep in sync with frontend `EXPO_PUBLIC_HL_BUILDER_*`. |
+| `HIP3_ENABLED_DEXES` | Comma-separated HIP-3 perp dex names to fetch/subscribe (`xyz,io`). Unset → `xyz,io`. Does **not** auto-list every market on those dexs — catalog is still `ASSET_METADATA`. |
 
 ### Bridge2 defaults (usually fine)
 
@@ -142,6 +143,7 @@ Injected at build time (`EXPO_PUBLIC_*`). Prefer `.env` / EAS secrets over commi
 | `EXPO_PUBLIC_WALLETCONNECT_PROJECT_ID`, `EXPO_PUBLIC_SIWE_*` | External wallet connect |
 | `EXPO_PUBLIC_HL_BUILDER_ADDRESS` | **Pinned** builder on orders. Forks earning fees: set in `.env` / EAS (must match backend `BUILDER_ADDRESS`). Unset → HyperTrade hardcoded default |
 | `EXPO_PUBLIC_HL_BUILDER_FEE_TENTHS_BPS` | Client fee ceiling / default (tenths bps). API may lower via rewards discount |
+| `EXPO_PUBLIC_HIP3_ENABLED_DEXES` | Comma-separated HIP-3 dexes for WS/REST/openOrders (`xyz,io`). Unset → `xyz,io`. Must stay aligned with backend `HIP3_ENABLED_DEXES`. |
 | `EXPO_PUBLIC_ENABLE_BANKING` | Tier-3 UI gate. Default **off**. With `BANK_KYC_PAUSED` / `BANK_SERVICE_PAUSED` in `bankKycPause.ts`: Stage 0 off / 1 SOON / 2 KYC live / 3 maintenance PAUSED — see [FORKING.md](./FORKING.md) §3 |
 | `EXPO_PUBLIC_APPSFLYER_DEV_KEY`, `EXPO_PUBLIC_WHITEPAPER_URL` | Optional |
 

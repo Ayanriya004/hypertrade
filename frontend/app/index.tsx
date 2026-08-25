@@ -112,6 +112,7 @@ const CUSTOM_MARKET_ORDER: Record<'all' | 'stocks' | 'crypto' | 'commodities' | 
     'OIL',
     'META',
     'TSLA',
+    'ANTH',
     'SOL',
     'XRP',
     'EUR',
@@ -121,6 +122,7 @@ const CUSTOM_MARKET_ORDER: Record<'all' | 'stocks' | 'crypto' | 'commodities' | 
     'NVDA',
     'AAPL',
     'TSLA',
+    'ANTH',
     'GOOGL',
     'MSFT',
     'META',
@@ -253,6 +255,7 @@ const STOCK_SYMBOL_OVERRIDES = new Set([
   'LLY',
   'BABA',
   'SNDK',
+  'ANTH',
   'ORCL',
   'CRWV',
   'SPCX',
@@ -2085,6 +2088,7 @@ function MarketDashboard() {
       coin: item.coin,
       symbol: item.symbol,
       isHip3: (item as any).isHip3 === true,
+      dex: item.dex,
     });
     
     return (
@@ -2652,6 +2656,7 @@ function MarketDashboard() {
                         coin: row.coin,
                         symbol: row.symbol,
                         isHip3: row.isHip3 === true,
+                        dex: row.dex,
                       });
                 const displayPrice =
                   livePrice ||

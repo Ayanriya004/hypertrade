@@ -43,19 +43,14 @@ import { useTranslation } from 'react-i18next';
 import { fetchAssets, fetchCryptoAssets, Asset } from '../src/lib/api';
 import { isHiddenLowLiquidityGoldSpotAsset } from '../src/lib/hiddenMarkets';
 import { formatDisplaySymbol } from '../src/lib/displaySymbols';
+import { hip3DisplaySymbol } from '../src/lib/hip3Dexes';
 
-/** HIP-3 labels: `GOLD:xyz` or HL coin `xyz:SNDK` → `GOLD` / `SNDK`. Never empty. */
+/** HIP-3 labels: `GOLD:xyz` / `xyz:SNDK` / `io:ANTH` → `GOLD` / `SNDK` / `ANTH`. */
 const getDisplaySymbol = (symbol: string): string => {
   if (!symbol) return symbol;
   const raw = String(symbol).trim();
-  if (!raw.includes(':')) return formatDisplaySymbol(raw) || raw;
-  const [left, ...rest] = raw.split(':');
-  const right = rest.join(':');
-  const leftL = left.toLowerCase();
-  const rightL = right.toLowerCase();
-  if (leftL === 'xyz') return formatDisplaySymbol(right) || raw;
-  if (rightL === 'xyz') return formatDisplaySymbol(left) || raw;
-  return formatDisplaySymbol(raw) || raw;
+  const stripped = hip3DisplaySymbol(raw);
+  return formatDisplaySymbol(stripped) || stripped || raw;
 };
 
 type TabType = 'active' | 'triggered' | 'history';
@@ -830,6 +825,7 @@ export default function PriceAlertsScreen() {
                             coin: item.coin,
                             symbol: item.symbol,
                             isHip3: item.isHip3 === true,
+                            dex: item.dex,
                           });
                           const displayPrice = livePriceRaw || item.markPx;
                           const categoryLabel =

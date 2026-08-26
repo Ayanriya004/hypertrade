@@ -17,6 +17,9 @@ from typing import Any, Callable, Dict, List, Optional, Awaitable, Set, Tuple
 # and concurrent visitors share one HL/Supabase rebuild.
 SHOWCASE_CACHE_TTL_SEC = 28.0
 BASELINE_USD = 1000.0
+# Agent cloids start with ASCII "HTAI" — same as frontend/src/lib/aiAgentCloid.ts
+_HTAI_CLOID_PREFIX = "0x48544149"
+_SHOWCASE_FILL_LIMIT = 40
 # Always probe these HIP-3 dexs so a listed xyz:* / io:* on an agent surfaces
 # (mirrors backend/ai_agents.py SUPPORTED_HIP3_DEXES).
 _SHOWCASE_HIP3_DEXES = ("xyz", "io")
@@ -331,8 +334,128 @@ def _infer_tpsl_from_position(
     return None
 
 
+def _flatten_hl_order(order: Dict[str, Any]) -> Dict[str, Any]:
+    """frontendOpenOrders is usually flat; some payloads nest fields under order/o."""
+    inner = order.get("order") if isinstance(order.get("order"), dict) else None
+    if inner is None and isinstance(order.get("o"), dict):
+        inner = order["o"]
+    if not inner:
+        return order
+    merged = {**inner, **order}
+    for key in (
+        "coin",
+        "side",
+        "limitPx",
+        "sz",
+        "size",
+        "triggerPx",
+        "isTrigger",
+        "reduceOnly",
+        "tpsl",
+        "orderType",
+        "t",
+    ):
+        if merged.get(key) is None and inner.get(key) is not None:
+            merged[key] = inner[key]
+    return merged
+
+
+def _created_ms(row: Dict[str, Any]) -> Optional[int]:
+    created_raw = row.get("created_at")
+    if not (isinstance(created_raw, str) and created_raw.strip()):
+        return None
+    try:
+        s = created_raw.strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_ai_cloid(raw: Any) -> bool:
+    s = str(raw or "").strip().lower()
+    return s.startswith(_HTAI_CLOID_PREFIX)
+
+
+def _merge_hl_fill_lists(*lists: Any) -> List[Dict[str, Any]]:
+    seen: Set[Any] = set()
+    out: List[Dict[str, Any]] = []
+    for lst in lists:
+        if not isinstance(lst, list):
+            continue
+        for f in lst:
+            if not isinstance(f, dict):
+                continue
+            tid = f.get("tid") or f.get("hash")
+            key = (
+                tid
+                if tid is not None
+                else (f.get("time"), f.get("coin"), f.get("oid"), f.get("sz"), f.get("px"))
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(f)
+    return out
+
+
+def _fills_to_closed_rows(
+    fills: List[Dict[str, Any]],
+    *,
+    since_ms: Optional[int],
+    limit: int = _SHOWCASE_FILL_LIMIT,
+) -> List[Dict[str, Any]]:
+    """HL userFills → showcase Completed rows (AI + manual, same book as Portfolio)."""
+    rows: List[Dict[str, Any]] = []
+    for f in fills:
+        coin = str(f.get("coin") or "").strip()
+        if not coin or coin.startswith("@"):
+            continue
+        t_raw = f.get("time") if f.get("time") is not None else f.get("timestamp")
+        t_ms: Optional[int] = None
+        if _is_num(t_raw):
+            t_ms = _ts_to_ms(int(float(t_raw)))
+        if since_ms and t_ms is not None and t_ms < since_ms:
+            continue
+        side_raw = str(f.get("side") or "").upper()
+        is_buy = side_raw in ("B", "BUY")
+        px = float(f["px"]) if _is_num(f.get("px")) else (
+            float(f["price"]) if _is_num(f.get("price")) else None
+        )
+        sz = float(f["sz"]) if _is_num(f.get("sz")) else (
+            float(f["size"]) if _is_num(f.get("size")) else None
+        )
+        fee = float(f["fee"]) if _is_num(f.get("fee")) else 0.0
+        closed_pnl = float(f["closedPnl"]) if _is_num(f.get("closedPnl")) else 0.0
+        # HL separates fee from closedPnl — net so opens aren't a fake 0.
+        net = closed_pnl - fee
+        value = abs(px * sz) if (px is not None and sz is not None) else None
+        dir_raw = str(f.get("dir") or "").strip() or None
+        ai = _is_ai_cloid(f.get("cloid") or f.get("c"))
+        rows.append(
+            {
+                "symbol": coin,
+                "side": "LONG" if is_buy else "SHORT",
+                "orderSide": "buy" if is_buy else "sell",
+                "closePrice": px,
+                "size": sz,
+                "valueUsd": round(value, 2) if value is not None else None,
+                "feeUsd": round(fee, 4),
+                "pnlUsd": round(net, 4),
+                "closedAt": t_ms,
+                "ai": ai,
+                "dir": dir_raw,
+                "reason": "ai" if ai else "manual",
+            }
+        )
+    rows.sort(key=lambda r: int(r.get("closedAt") or 0), reverse=True)
+    return rows[:limit]
+
+
 def _parse_hl_asset_positions(state: Any) -> Dict[str, Dict[str, Any]]:
-    """coin → {liquidationPx, marginUsed, marginType, leverage} from clearinghouse."""
+    """coin → live HL perp fields from clearinghouse."""
     out: Dict[str, Dict[str, Any]] = {}
     if not isinstance(state, dict):
         return out
@@ -358,6 +481,11 @@ def _parse_hl_asset_positions(state: Any) -> Dict[str, Dict[str, Any]]:
         upnl = pos.get("unrealizedPnl")
         roe = pos.get("returnOnEquity")
         entry_px = pos.get("entryPx")
+        pos_val = pos.get("positionValue")
+        if pos_val is None:
+            pos_val = pos.get("position_value")
+        cum = pos.get("cumFunding") if isinstance(pos.get("cumFunding"), dict) else {}
+        since_open = cum.get("sinceOpen") if isinstance(cum, dict) else None
         out[coin] = {
             "liquidationPx": float(liq) if _is_num(liq) and float(liq) > 0 else None,
             "marginUsed": float(margin) if _is_num(margin) else None,
@@ -367,6 +495,9 @@ def _parse_hl_asset_positions(state: Any) -> Dict[str, Dict[str, Any]]:
             "returnOnEquity": float(roe) if _is_num(roe) else None,
             "szi": szi,
             "entryPx": float(entry_px) if _is_num(entry_px) else None,
+            "positionValue": abs(float(pos_val)) if _is_num(pos_val) else None,
+            # HL: positive sinceOpen = funding paid by the position (cost).
+            "fundingPaid": float(since_open) if _is_num(since_open) else None,
         }
         # Also index bare coin for HIP-3 `dex:COIN`
         bare = coin.split(":")[-1]
@@ -406,6 +537,8 @@ def _hl_live_position_row(
     side = "LONG" if szi > 0 else "SHORT"
     entry = live.get("entryPx")
     entry_f = float(entry) if _is_num(entry) else None
+    if size_usd is None and _is_num(live.get("positionValue")):
+        size_usd = abs(float(live["positionValue"]))
     if size_usd is None and abs(szi) > 0:
         px = mark if (mark and mark > 0) else entry_f
         if px and px > 0:
@@ -416,6 +549,10 @@ def _hl_live_position_row(
         roe_pct = float(live["returnOnEquity"]) * 100.0
     elif upnl is not None and live.get("marginUsed") and live["marginUsed"] > 0:
         roe_pct = (float(upnl) / float(live["marginUsed"])) * 100.0
+    # Match PortfolioTabs: flip HL sinceOpen (paid) to the user's P&L sign.
+    funding_usd = None
+    if _is_num(live.get("fundingPaid")):
+        funding_usd = round(-float(live["fundingPaid"]), 4)
     return {
         "symbol": symbol,
         "side": side,
@@ -428,6 +565,7 @@ def _hl_live_position_row(
         "marginType": live.get("marginType"),
         "liquidationPx": live.get("liquidationPx"),
         "marginUsed": live.get("marginUsed"),
+        "fundingUsd": funding_usd,
         "manual": manual,
     }
 
@@ -718,6 +856,7 @@ async def _build_agent_payload(
     coin_parts = {s.split(":")[-1] for s in symbols}
     addr = _trading_address(row)
     critical_ok = True
+    created_ms = _created_ms(row)
 
     equity: List[Dict[str, float]] = []
     pnl_now = 0.0
@@ -761,30 +900,23 @@ async def _build_agent_payload(
                     fetch_hl, "frontendOpenOrders", {"user": addr, "dex": d}
                 )
             )
+        fills_main_i = len(tasks)
+        tasks.append(
+            _fetch_hl_safe(
+                fetch_hl, "userFills", {"user": addr, "aggregateByTime": True}
+            )
+        )
 
         gathered = await asyncio.gather(*tasks)
         portfolio, portfolio_ok = gathered[0]
         ch_results = gathered[ch_start:orders_main_i]
         orders_main, orders_main_ok = gathered[orders_main_i]
-        orders_hip3_results = gathered[orders_hip3_start:]
+        orders_hip3_results = gathered[orders_hip3_start:fills_main_i]
+        fills_main, fills_main_ok = gathered[fills_main_i]
 
         if portfolio_ok:
             # Rebase to agent create — wallet history often predates the agent
             # (recycled showcase keys / prior fills).
-            created_ms: Optional[int] = None
-            created_raw = row.get("created_at")
-            if isinstance(created_raw, str) and created_raw.strip():
-                try:
-                    # Supabase timestamptz → epoch ms (handle trailing Z / offset).
-                    s = created_raw.strip().replace("Z", "+00:00")
-                    dt = datetime.fromisoformat(s)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    created_ms = int(dt.timestamp() * 1000)
-                except (TypeError, ValueError):
-                    created_ms = None
-            # Same portfolio GET — pick day/week/month/allTime by agent age
-            # (denser ~15m samples; no extra HL weight).
             entry = _portfolio_entry_for_agent(portfolio, since_ms=created_ms)
             equity = indexed_equity_from_pnl_history(entry, since_ms=created_ms)
             if equity:
@@ -806,10 +938,18 @@ async def _build_agent_payload(
             if ok and isinstance(extra, list):
                 all_orders.extend(extra)
         # Orders are non-critical — empty on blip is fine (DB TP/SL fallback below).
+
+        # One userFills (weight 20) — HIP-3 coins arrive dex-prefixed on the same list.
+        fills_ok = fills_main_ok and isinstance(fills_main, list)
+        all_fills = _merge_hl_fill_lists(fills_main if fills_ok else [])
     else:
         all_orders = []
+        all_fills = []
+        fills_ok = False
 
-    # Positions (tracked) + live HL margin/liq enrichment
+    # Positions: DB OPEN rows identify AI-managed names; live HL is the book
+    # (size / entry / margin / liq). Worker size_usd only patches hourly, so a
+    # manual add/trim would leave Size stuck if we published the DB snapshot.
     pos_res = (
         supabase.table("ai_agent_positions")
         .select(
@@ -833,7 +973,7 @@ async def _build_agent_payload(
     for p in pos_res.data or []:
         sym = str(p.get("symbol") or "")
         coin = sym.split(":")[-1].upper()
-        entry = float(p["entry_price"]) if _is_num(p.get("entry_price")) else None
+        db_entry = float(p["entry_price"]) if _is_num(p.get("entry_price")) else None
         # Main mids are bare (BTC); HIP-3 mids are dex-prefixed (xyz:CRCL),
         # with bare coin also indexed when merging shared_mids.
         mark = mids.get(sym.upper()) or mids.get(coin)
@@ -853,40 +993,38 @@ async def _build_agent_payload(
                 continue
             live_entry = live.get("entryPx")
             live_entry_f = float(live_entry) if _is_num(live_entry) else None
-            if not _entries_likely_same(entry, live_entry_f):
+            if not _entries_likely_same(db_entry, live_entry_f):
                 continue
-        lev = live.get("leverage")
-        if lev is None and _is_num(p.get("leverage")):
-            lev = float(p["leverage"])
-        margin_used = live.get("marginUsed")
-        # Prefer live HL mark-based PnL (same as PortfolioTabs).
-        upnl = live.get("unrealizedPnl")
-        if upnl is None and entry and mark and _is_num(live.get("szi")):
-            szi = float(live["szi"])
-            upnl = (mark - entry) * szi
-        elif upnl is None and entry and mark and entry > 0 and _is_num(p.get("size_usd")):
+            row_out = _hl_live_position_row(
+                symbol=sym,
+                live=live,
+                mark=mark,
+                manual=False,
+            )
+            if row_out.get("leverage") is None and _is_num(p.get("leverage")):
+                row_out["leverage"] = float(p["leverage"])
+            positions.append(row_out)
+            continue
+        lev = float(p["leverage"]) if _is_num(p.get("leverage")) else None
+        upnl = None
+        if db_entry and mark and db_entry > 0 and _is_num(p.get("size_usd")):
             size_usd = float(p["size_usd"])
             signed = size_usd if side == "LONG" else -size_usd
-            upnl = ((mark - entry) / entry) * signed
-        roe_pct = None
-        if live.get("returnOnEquity") is not None:
-            # HL stores ROE as a fraction (0.12 = 12%).
-            roe_pct = float(live["returnOnEquity"]) * 100.0
-        elif upnl is not None and margin_used and margin_used > 0:
-            roe_pct = (float(upnl) / float(margin_used)) * 100.0
+            upnl = ((mark - db_entry) / db_entry) * signed
         positions.append(
             {
                 "symbol": sym,
                 "side": side,
-                "entry": entry,
+                "entry": db_entry,
                 "mark": mark,
                 "sizeUsd": float(p["size_usd"]) if _is_num(p.get("size_usd")) else None,
                 "unrealizedPnl": round(float(upnl), 2) if upnl is not None else None,
-                "unrealizedPct": round(roe_pct, 2) if roe_pct is not None else None,
+                "unrealizedPct": None,
                 "leverage": lev,
-                "marginType": live.get("marginType"),
-                "liquidationPx": live.get("liquidationPx"),
-                "marginUsed": margin_used,
+                "marginType": None,
+                "liquidationPx": None,
+                "marginUsed": None,
+                "fundingUsd": None,
                 "manual": False,
             }
         )
@@ -930,10 +1068,13 @@ async def _build_agent_payload(
             if bare:
                 covered.add(bare)
 
-    for o in all_orders:
-        if not isinstance(o, dict):
+    for raw_o in all_orders:
+        if not isinstance(raw_o, dict):
             continue
+        o = _flatten_hl_order(raw_o)
         coin = str(o.get("coin") or "").upper()
+        if not coin:
+            continue
         coin_part = coin.split(":")[-1]
         is_trigger = bool(o.get("isTrigger")) or float(o.get("triggerPx") or 0) > 0
         px_raw = o.get("triggerPx") if is_trigger else o.get("limitPx")
@@ -1013,39 +1154,39 @@ async def _build_agent_payload(
                     }
                 )
 
-    # Closed (recent) for this agent's tracked symbols — includes external closes.
-    closed_res = (
-        supabase.table("ai_agent_positions")
-        .select("symbol,direction,entry_price,close_price,closed_at,status,close_reason")
-        .eq("agent_id", row["id"])
-        .in_("status", ["CLOSED", "CLOSED_BY_USER"])
-        .order("closed_at", desc=True)
-        .limit(24)
-        .execute()
-    )
-    closed = []
-    for c in closed_res.data or []:
-        sym = str(c.get("symbol") or "").upper()
-        coin = sym.split(":")[-1]
-        if coin_parts and coin not in coin_parts and sym not in coin_parts:
-            continue
-        close_px = float(c["close_price"]) if _is_num(c.get("close_price")) else None
-        entry_px = float(c["entry_price"]) if _is_num(c.get("entry_price")) else None
-        price = close_px if close_px is not None else entry_px
-        if price is None:
-            continue
-        closed.append(
-            {
-                "symbol": c.get("symbol"),
-                "side": str(c.get("direction") or "").upper(),
-                "closePrice": price,
-                "priceIsEntry": close_px is None and entry_px is not None,
-                "closedAt": c.get("closed_at"),
-                "reason": c.get("close_reason") or c.get("status"),
-            }
+    # Completed: live HL fills on this wallet (AI cloid + manual), since agent
+    # create. Matches Portfolio history — not only worker-reconciled AI closes.
+    closed = _fills_to_closed_rows(all_fills, since_ms=created_ms)
+    if not closed and not fills_ok:
+        closed_res = (
+            supabase.table("ai_agent_positions")
+            .select("symbol,direction,entry_price,close_price,closed_at,status,close_reason")
+            .eq("agent_id", row["id"])
+            .in_("status", ["CLOSED", "CLOSED_BY_USER"])
+            .order("closed_at", desc=True)
+            .limit(24)
+            .execute()
         )
-        if len(closed) >= 8:
-            break
+        for c in closed_res.data or []:
+            close_px = float(c["close_price"]) if _is_num(c.get("close_price")) else None
+            entry_px = float(c["entry_price"]) if _is_num(c.get("entry_price")) else None
+            price = close_px if close_px is not None else entry_px
+            if price is None:
+                continue
+            closed.append(
+                {
+                    "symbol": c.get("symbol"),
+                    "side": str(c.get("direction") or "").upper(),
+                    "orderSide": None,
+                    "closePrice": price,
+                    "priceIsEntry": close_px is None and entry_px is not None,
+                    "closedAt": c.get("closed_at"),
+                    "reason": c.get("close_reason") or c.get("status"),
+                    "ai": True,
+                }
+            )
+            if len(closed) >= _SHOWCASE_FILL_LIMIT:
+                break
 
     # Decisions + opening
     dec_res = (

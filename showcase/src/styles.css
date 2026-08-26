@@ -1223,6 +1223,30 @@ a:hover {
   padding-bottom: 2px;
 }
 
+.book-show-more {
+  display: flex;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--teal);
+  font-family: var(--font-btn);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.book-show-more:hover {
+  border-color: rgba(92, 225, 230, 0.45);
+  background: rgba(92, 225, 230, 0.08);
+}
+
 .book-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -1274,6 +1298,12 @@ a:hover {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.35);
   color: #fbbf24;
+}
+
+.meta-badge-ai {
+  background: rgba(92, 225, 230, 0.12);
+  border-color: rgba(92, 225, 230, 0.35);
+  color: var(--teal);
 }
 
 .side-pill {

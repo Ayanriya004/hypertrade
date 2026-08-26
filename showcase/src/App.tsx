@@ -72,6 +72,8 @@ function equityForStartingCapital(
 
 type BookTab = 'positions' | 'orders' | 'closed';
 
+const CLOSED_PAGE_SIZE = 10;
+
 function displaySym(s: string) {
   return s.includes(':') ? s.slice(s.indexOf(':') + 1) : s;
 }
@@ -421,6 +423,7 @@ export default function App() {
     {},
   );
   const [stripHasMore, setStripHasMore] = useState(false);
+  const [closedShown, setClosedShown] = useState(CLOSED_PAGE_SIZE);
   const stripRef = useRef<HTMLDivElement>(null);
   const nextCycleCountdown = useNextCycleCountdown();
 
@@ -496,8 +499,15 @@ export default function App() {
     () => agents.find((a) => a.id === selectedId) ?? agents[0] ?? null,
     [agents, selectedId],
   );
+
+  useEffect(() => {
+    setClosedShown(CLOSED_PAGE_SIZE);
+  }, [selectedId]);
+
   const agentHyperdashUrl = agent ? hyperdashUrlFor(agent.id) : undefined;
   const agentStartingCapital = agent ? startingCapitalUsdFor(agent.id) : DEFAULT_STARTING_CAPITAL_USD;
+  const closedVisible = agent ? agent.closed.slice(0, closedShown) : [];
+  const closedRemaining = agent ? Math.max(0, agent.closed.length - closedVisible.length) : 0;
 
   return (
     <div className="app">
@@ -855,6 +865,27 @@ export default function App() {
                             </span>
                           </div>
                           <div className="metric">
+                            <span
+                              className="metric-label"
+                              title="Funding received since this position opened"
+                            >
+                              Funding
+                            </span>
+                            <span
+                              className={`metric-value${
+                                p.fundingUsd == null
+                                  ? ''
+                                  : p.fundingUsd > 0
+                                    ? ' tone-positive'
+                                    : p.fundingUsd < 0
+                                      ? ' tone-negative'
+                                      : ''
+                              }`}
+                            >
+                              {p.fundingUsd != null ? formatSignedUsd(p.fundingUsd) : '—'}
+                            </span>
+                          </div>
+                          <div className="metric">
                             <span className="metric-label">PnL</span>
                             <span className={`metric-value ${pnlTone}`}>
                               {p.unrealizedPnl != null
@@ -940,20 +971,57 @@ export default function App() {
 
               {bookTab === 'closed' &&
                 (agent.closed.length === 0 ? (
-                  <div className="empty">No closed trades yet.</div>
+                  <div className="empty">No fills on this book yet.</div>
                 ) : (
-                  agent.closed.map((t, i) => {
-                    const isLong = t.side === 'LONG';
+                  <>
+                    {closedVisible.map((t, i) => {
+                    const buySell =
+                      t.orderSide === 'buy' || t.orderSide === 'sell'
+                        ? t.orderSide
+                        : t.side === 'LONG'
+                          ? 'buy'
+                          : 'sell';
+                    const isBuy = buySell === 'buy';
+                    const pnlTone =
+                      t.pnlUsd == null
+                        ? ''
+                        : t.pnlUsd > 0
+                          ? 'tone-positive'
+                          : t.pnlUsd < 0
+                            ? 'tone-negative'
+                            : '';
                     return (
-                      <div className="book-card" key={`${t.symbol}-${i}`}>
+                      <div className="book-card" key={`${t.symbol}-${t.closedAt}-${i}`}>
                         <div className="book-card-head">
                           <span className="sym-badge">{displaySym(t.symbol)}</span>
-                          <span className={`side-pill ${isLong ? 'long' : 'short'}`}>
-                            {t.side}
+                          {t.ai ? (
+                            <span
+                              className="meta-badge meta-badge-ai"
+                              title="Filled by this agent"
+                            >
+                              AI
+                            </span>
+                          ) : (
+                            <span
+                              className="meta-badge meta-badge-manual"
+                              title="Filled on this book outside the agent"
+                            >
+                              Manual
+                            </span>
+                          )}
+                          <span className={`side-pill ${isBuy ? 'long' : 'short'}`}>
+                            {isBuy ? 'Buy' : 'Sell'}
                           </span>
-                          <span className="book-card-time">{timeAgo(t.closedAt)}</span>
+                          {t.dir ? (
+                            <span className="meta-badge" title={t.dir}>
+                              {t.dir}
+                            </span>
+                          ) : null}
+                          {t.closedAt ? (
+                            <span className="book-card-time">{timeAgo(t.closedAt)}</span>
+                          ) : null}
                         </div>
-                        <div className="metrics-grid metrics-grid-1">
+                        <div className="metrics-grid">
                           <div className="metric">
                             <span className="metric-label">
                               {t.priceIsEntry ? 'Entry' : 'Price'}
@@ -962,10 +1030,47 @@ export default function App() {
                               {t.closePrice != null ? formatPrice(t.closePrice) : '—'}
                             </span>
                           </div>
+                          <div className="metric">
+                            <span className="metric-label">Value</span>
+                            <span className="metric-value">
+                              {t.valueUsd != null
+                                ? `$${t.valueUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                                : '—'}
+                            </span>
+                          </div>
+                          <div className="metric">
+                            <span className="metric-label">PnL</span>
+                            <span className={`metric-value ${pnlTone}`}>
+                              {t.pnlUsd != null ? formatSignedUsd(t.pnlUsd) : '—'}
+                            </span>
+                          </div>
+                          <div className="metric">
+                            <span className="metric-label">Fee</span>
+                            <span className="metric-value metric-value-muted">
+                              {t.feeUsd != null
+                                ? `$${Math.abs(t.feeUsd).toLocaleString(undefined, {
+                                    maximumFractionDigits: 2,
+                                    minimumFractionDigits: 2,
+                                  })}`
+                                : '—'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
-                  })
+                    })}
+                    {closedRemaining > 0 ? (
+                      <button
+                        type="button"
+                        className="book-show-more"
+                        onClick={() =>
+                          setClosedShown((n) => n + CLOSED_PAGE_SIZE)
+                        }
+                      >
+                        Show more ({closedRemaining})
+                      </button>
+                    ) : null}
+                  </>
                 ))}
             </div>
 

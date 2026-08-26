@@ -18,6 +18,8 @@ export type LivePosition = {
   marginType?: 'cross' | 'isolated' | null;
   liquidationPx?: number | null;
   marginUsed?: number | null;
+  /** User-perspective funding since open (positive = received). HL sinceOpen flipped, same as PortfolioTabs. */
+  fundingUsd?: number | null;
   /** True when this perp is live on the agent's book but was not opened by the agent. */
   manual?: boolean;
 };
@@ -64,13 +66,22 @@ export type OpeningDecision = {
 export type ClosedTrade = {
   symbol: string;
   side: Side;
+  /** Fill side — Portfolio history uses buy/sell, not position direction. */
+  orderSide?: 'buy' | 'sell' | null;
   closePrice: number | null;
+  size?: number | null;
+  valueUsd?: number | null;
+  feeUsd?: number | null;
+  /** Net realized (closedPnl − fee). */
+  pnlUsd?: number | null;
   /** True when close_price was missing and entry was used as fallback. */
   priceIsEntry?: boolean;
-  closedAt: string | number;
+  closedAt: string | number | null;
+  /** HL dir string, e.g. "Open Long" / "Close Short". */
+  dir?: string | null;
+  /** True when the fill cloid is an HTAI agent order. */
+  ai?: boolean;
   reason?: string | null;
-  /** @deprecated kept optional for older cached payloads */
-  pnlUsd?: number | null;
 };
 
 export type AgentDirection = 'long_short' | 'long_only' | 'short_only' | string;

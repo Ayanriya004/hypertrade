@@ -8,7 +8,7 @@ import { EquityChart } from './components/EquityChart';
 import { FaqAccordion } from './components/FaqAccordion';
 import { HorizonHint } from './components/HorizonHint';
 import { Sparkline } from './components/Sparkline';
-import { ClockIcon, GooglePlayIcon, MailIcon, MediumIcon } from './components/Icons';
+import { ClockIcon, ExternalLinkIcon, GooglePlayIcon, MailIcon, MediumIcon } from './components/Icons';
 import { SHOWCASE_FAQ } from './lib/faq';
 import { formatCycleCountdown, msUntilNextHourlyCycle } from './lib/hourlyCycle';
 import { symbolLogoSrc } from './lib/symbolLogos';
@@ -21,6 +21,54 @@ const MEDIUM =
 const CONTACT = 'mailto:support@hypertrade.exchange';
 /** Align with showcase API cache (~28s) — snappier than 60s, still HL-friendly. */
 const REFRESH_MS = 30_000;
+
+/** House-agent → Hyperdash explorer (read-only). */
+const HYPERDASH_BY_AGENT_ID: Record<string, string> = {
+  '2369e222-c2c4-447b-aca1-5dc7e30f6cfb':
+    'https://hyperdash.com/address/0x7fac31326e7df6b885b40a080a71e3bd42fce3a0',
+  'fd6a5783-d0ce-4bf5-8214-aa166eb739f4':
+    'https://hyperdash.com/address/0xe61c5487784345d79b1f379d148993d4cda8bd73',
+  '682a3cea-0574-47dd-82c1-76d914c4597a':
+    'https://hyperdash.com/address/0x3a73575a5501ace4f4048491c17189e22f4de734',
+  '282b73a1-1a6d-447c-bf8a-4d4803e41ccf':
+    'https://hyperdash.com/address/0xcbb222d6eca1abe22362d148ecf06a1f7b209f18',
+  'f2501883-89ef-499b-8ea1-b6b56dd6f024':
+    'https://hyperdash.com/address/0x8ea6a20ee4bd9a36da4eb5df981357b65db28c99',
+};
+
+/** API equity is always `$1000 + dollar PnL`. Percents / chart labels use this map. */
+const API_EQUITY_BASELINE_USD = 1000;
+const DEFAULT_STARTING_CAPITAL_USD = 1000;
+const STARTING_CAPITAL_USD_BY_AGENT_ID: Record<string, number> = {
+  'f2501883-89ef-499b-8ea1-b6b56dd6f024': 10_000,
+};
+
+function hyperdashUrlFor(id: string): string | undefined {
+  return HYPERDASH_BY_AGENT_ID[id.toLowerCase()];
+}
+
+function startingCapitalUsdFor(id: string): number {
+  return STARTING_CAPITAL_USD_BY_AGENT_ID[id.toLowerCase()] ?? DEFAULT_STARTING_CAPITAL_USD;
+}
+
+function formatStartingCapital(n: number): string {
+  return formatMaxBudget(n) ?? `$${Math.round(n)}`;
+}
+
+function pnlPctOfCapital(pnlUsd: number, capitalUsd: number): number {
+  if (!(capitalUsd > 0)) return 0;
+  return (pnlUsd / capitalUsd) * 100;
+}
+
+/** Shift API `$1000 + PnL` series onto this agent's starting capital. */
+function equityForStartingCapital(
+  points: ShowcaseAgent['equity'],
+  capitalUsd: number,
+): ShowcaseAgent['equity'] {
+  const shift = capitalUsd - API_EQUITY_BASELINE_USD;
+  if (shift === 0) return points;
+  return points.map((p) => ({ ...p, indexed: p.indexed + shift }));
+}
 
 type BookTab = 'positions' | 'orders' | 'closed';
 
@@ -391,10 +439,19 @@ export default function App() {
     if (!el) return;
     updateStripOverflow();
     el.addEventListener('scroll', updateStripOverflow, { passive: true });
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      if (e.deltaY === 0) return;
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
     const ro = new ResizeObserver(updateStripOverflow);
     ro.observe(el);
     return () => {
       el.removeEventListener('scroll', updateStripOverflow);
+      el.removeEventListener('wheel', onWheel);
       ro.disconnect();
     };
   }, [agents.length]);
@@ -439,6 +496,8 @@ export default function App() {
     () => agents.find((a) => a.id === selectedId) ?? agents[0] ?? null,
     [agents, selectedId],
   );
+  const agentHyperdashUrl = agent ? hyperdashUrlFor(agent.id) : undefined;
+  const agentStartingCapital = agent ? startingCapitalUsdFor(agent.id) : DEFAULT_STARTING_CAPITAL_USD;
 
   return (
     <div className="app">
@@ -465,9 +524,12 @@ export default function App() {
       </header>
 
       <section className="hero">
-        <div className="hero-kicker">
-          <span className="live-dot" />
-          Live showcase · read only
+        <div className="hero-kicker-wrap">
+          <div className="hero-kicker">
+            <span className="live-dot" />
+            Live showcase · read only
+          </div>
+          <p className="hero-phase">Phase 0: Testing</p>
         </div>
         <h1>
           AI agents that trade
@@ -475,8 +537,8 @@ export default function App() {
           <span className="nowrap">with you</span>
         </h1>
         <p>
-          House-funded agents on Hyperliquid — symbols, PnL from a $1k baseline, and the reasoning
-          trail. Launch your own in the HyperTrade app.
+          House-funded agents on Hyperliquid — symbols, PnL vs each agent's starting capital, and
+          the reasoning trail. Launch your own in the HyperTrade app.
         </p>
       </section>
 
@@ -533,9 +595,11 @@ export default function App() {
           >
             {agents.map((a) => {
               const d = a.pnlFrom1k;
+              const capital = startingCapitalUsdFor(a.id);
               const active = a.id === agent?.id;
               const inactive = isAgentInactive(a);
               const stoppedLabel = statusLabel(a.status);
+              const hyperdashUrl = hyperdashUrlFor(a.id);
               return (
                 <button
                   key={a.id}
@@ -552,6 +616,26 @@ export default function App() {
                   <div className="chip-top">
                     <div className="chip-name">
                       {a.name}
+                      {hyperdashUrl ? (
+                        <span
+                          className="chip-hyperdash"
+                          role="link"
+                          tabIndex={0}
+                          aria-label={`View ${a.name} on Hyperdash`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(hyperdashUrl, '_blank', 'noopener,noreferrer');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.open(hyperdashUrl, '_blank', 'noopener,noreferrer');
+                          }}
+                        >
+                          <ExternalLinkIcon size={13} />
+                        </span>
+                      ) : null}
                       {stoppedLabel ? (
                         <span className="chip-status" title={`Agent is ${stoppedLabel.toLowerCase()}`}>
                           {stoppedLabel}
@@ -599,7 +683,8 @@ export default function App() {
                     <div>
                       <div className={`chip-pnl ${pnlClass(d)}`}>{formatPnlUsd(d)}</div>
                       <div className="chip-pnl-sub">
-                        from $1k · {formatPct((d / 1000) * 100)}
+                        from {formatStartingCapital(capital)} ·{' '}
+                        {formatPct(pnlPctOfCapital(d, capital))}
                       </div>
                     </div>
                     <Sparkline points={a.equity} />
@@ -607,6 +692,7 @@ export default function App() {
                 </button>
               );
             })}
+            <span className="agent-strip-end-spacer" aria-hidden />
           </div>
         </div>
       )}
@@ -617,17 +703,30 @@ export default function App() {
             <div className="focus-title-row">
               <h2>
                 {agent.name}
+                {agentHyperdashUrl ? (
+                  <a
+                    className="focus-hyperdash"
+                    href={agentHyperdashUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`View ${agent.name} on Hyperdash`}
+                  >
+                    <ExternalLinkIcon size={16} />
+                  </a>
+                ) : null}
                 {statusLabel(agent.status) ? (
                   <span className="focus-status">{statusLabel(agent.status)}</span>
                 ) : null}
               </h2>
               <div className="focus-stats">
                 <div className="stat">
-                  <span className="stat-label">P&amp;L from $1k</span>
+                  <span className="stat-label">
+                    P&amp;L from {formatStartingCapital(agentStartingCapital)}
+                  </span>
                   <div className={`stat-value ${pnlClass(agent.pnlFrom1k)}`}>
                     {formatPnlUsd(agent.pnlFrom1k)}{' '}
                     <span className="stat-pct">
-                      ({formatPct((agent.pnlFrom1k / 1000) * 100)})
+                      ({formatPct(pnlPctOfCapital(agent.pnlFrom1k, agentStartingCapital))})
                     </span>
                   </div>
                 </div>
@@ -658,7 +757,10 @@ export default function App() {
               </p>
             ) : null}
           </div>
-          <EquityChart points={agent.equity} />
+          <EquityChart
+            points={equityForStartingCapital(agent.equity, agentStartingCapital)}
+            baselineUsd={agentStartingCapital}
+          />
 
           <div className="focus-grid">
             <div className="panel">
@@ -1045,9 +1147,10 @@ export default function App() {
               AI agents that sit on your book as copilots, not black boxes.
             </p>
             <p>
-              This page is a live, read-only window into house-funded agents: indexed equity from a
-              $1k baseline, open positions and orders, completed trades, and the decision trail
-              behind each move. Nothing here is financial advice — it is a product showcase.
+              This page is a live, read-only window into house-funded agents: indexed equity from
+              each agent's starting capital, open positions and orders, completed trades, and the
+              decision trail behind each move. Nothing here is financial advice — it is a product
+              showcase.
             </p>
             <ul className="about-points">
               <li>You keep the keys — agents trade under limits you set in the app</li>

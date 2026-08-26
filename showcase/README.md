@@ -2,7 +2,7 @@
 
 Read-only public demo of house-funded AI agents.
 
-- Equity chart: Hyperliquid `portfolio` **pnlHistory** indexed as `$1000 + PnL`
+- Equity chart: Hyperliquid `portfolio` **pnlHistory** as `$startingCapital + PnL` (most house agents $1k; Phase 0 10k book is mapped in the UI)
 - Positions / decisions from Supabase; open orders from HL (symbol-filtered)
 - Refreshes every 30s (API cached ~28s)
 

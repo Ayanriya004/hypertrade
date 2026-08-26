@@ -5,9 +5,11 @@ import { smoothLinePath } from '../lib/smoothPath';
 type Props = {
   points: EquityPoint[];
   height?: number;
+  /** Starting capital this series is indexed to (API default is $1k). */
+  baselineUsd?: number;
 };
 
-const BASELINE = 1000;
+const DEFAULT_BASELINE = 1000;
 const VIEW_W = 1000;
 
 function clamp(n: number, lo: number, hi: number) {
@@ -34,15 +36,16 @@ function formatHoverTime(t: number) {
   });
 }
 
-export function EquityChart({ points, height = 260 }: Props) {
+export function EquityChart({ points, height = 260, baselineUsd = DEFAULT_BASELINE }: Props) {
   const gradId = useId().replace(/:/g, '');
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const baseline = Number.isFinite(baselineUsd) && baselineUsd > 0 ? baselineUsd : DEFAULT_BASELINE;
 
   const { path, area, up, baselineY, coords } = useMemo(() => {
     const vals = points.map((p) => p.indexed);
-    const minV = Math.min(...vals, BASELINE);
-    const maxV = Math.max(...vals, BASELINE);
+    const minV = Math.min(...vals, baseline);
+    const maxV = Math.max(...vals, baseline);
     const pad = Math.max((maxV - minV) * 0.08, 8);
     const lo = minV - pad;
     const hi = maxV + pad;
@@ -55,16 +58,16 @@ export function EquityChart({ points, height = 260 }: Props) {
     });
     const line = smoothLinePath(xy);
     const areaPath = `${line} L${VIEW_W},${h} L0,${h} Z`;
-    const last = vals[vals.length - 1] ?? BASELINE;
-    const by = hi === lo ? h / 2 : h - ((BASELINE - lo) / (hi - lo)) * h;
+    const last = vals[vals.length - 1] ?? baseline;
+    const by = hi === lo ? h / 2 : h - ((baseline - lo) / (hi - lo)) * h;
     return {
       path: line,
       area: areaPath,
-      up: last >= BASELINE,
+      up: last >= baseline,
       baselineY: by,
       coords: xy,
     };
-  }, [points, height]);
+  }, [points, height, baseline]);
 
   const stroke = up ? '#10B981' : '#F43F5E';
   const lastIdx = Math.max(0, coords.length - 1);
@@ -91,7 +94,7 @@ export function EquityChart({ points, height = 260 }: Props) {
 
   const leftPct = (active.x / VIEW_W) * 100;
   const topPct = (active.y / height) * 100;
-  const pnl = active.indexed - BASELINE;
+  const pnl = active.indexed - baseline;
   const tooltipOnLeft = leftPct > 68;
 
   return (
@@ -109,7 +112,7 @@ export function EquityChart({ points, height = 260 }: Props) {
           viewBox={`0 0 ${VIEW_W} ${height}`}
           preserveAspectRatio="none"
           role="img"
-          aria-label="Equity curve indexed to $1000 starting capital"
+          aria-label={`Equity curve indexed to $${baseline.toLocaleString()} starting capital`}
         >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
@@ -156,7 +159,7 @@ export function EquityChart({ points, height = 260 }: Props) {
             top: `${clamp((baselineY / height) * 100, 4, 92)}%`,
           }}
         >
-          baseline $1,000
+          baseline ${baseline.toLocaleString()}
         </div>
 
         {hovering ? <div className="chart-crosshair" style={{ left: `${leftPct}%` }} /> : null}

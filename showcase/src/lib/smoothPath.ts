@@ -1,7 +1,18 @@
+type SmoothOpts = {
+  /** Keep cubic control points inside this y-range so the stroke isn't clipped. */
+  yMin?: number;
+  yMax?: number;
+};
+
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
 /** Catmull-Rom → cubic bezier SVG path (visual smoothness only). */
 export function smoothLinePath(
   coords: Array<{ x: number; y: number }>,
   digits = 1,
+  opts?: SmoothOpts,
 ): string {
   if (coords.length === 0) return '';
   const f = (n: number) => n.toFixed(digits);
@@ -9,6 +20,10 @@ export function smoothLinePath(
   if (coords.length === 2) {
     return `M${f(coords[0].x)},${f(coords[0].y)} L${f(coords[1].x)},${f(coords[1].y)}`;
   }
+  const clampY =
+    opts && Number.isFinite(opts.yMin) && Number.isFinite(opts.yMax)
+      ? (y: number) => clamp(y, opts.yMin as number, opts.yMax as number)
+      : (y: number) => y;
   let d = `M${f(coords[0].x)},${f(coords[0].y)}`;
   for (let i = 0; i < coords.length - 1; i += 1) {
     const p0 = coords[i === 0 ? 0 : i - 1];
@@ -16,9 +31,9 @@ export function smoothLinePath(
     const p2 = coords[i + 1];
     const p3 = coords[i + 2] ?? p2;
     const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp1y = clampY(p1.y + (p2.y - p0.y) / 6);
     const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    const cp2y = clampY(p2.y - (p3.y - p1.y) / 6);
     d += ` C${f(cp1x)},${f(cp1y)} ${f(cp2x)},${f(cp2y)} ${f(p2.x)},${f(p2.y)}`;
   }
   return d;

@@ -261,9 +261,10 @@ a:hover {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 56px;
+  /* Narrow gutter hint — a 56px fade sat on chip sparklines and washed them out. */
+  width: 18px;
   pointer-events: none;
-  background: linear-gradient(to right, transparent, var(--bg) 88%);
+  background: linear-gradient(to right, transparent, var(--bg));
   opacity: 0;
   transition: opacity 0.2s ease;
   z-index: 1;
@@ -271,6 +272,13 @@ a:hover {
 
 .agent-strip-wrap.has-more::after {
   opacity: 1;
+}
+
+@media (min-width: 861px) {
+  /* Desktop has a scrollbar; don't overlay the performance line. */
+  .agent-strip-wrap::after {
+    display: none;
+  }
 }
 
 .agent-strip {
@@ -647,6 +655,7 @@ a:hover {
 .chip-spark {
   display: block;
   flex-shrink: 0;
+  overflow: visible;
 }
 
 .chip-pnl {

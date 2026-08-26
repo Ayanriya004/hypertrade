@@ -7,9 +7,26 @@ type Props = {
   height?: number;
 };
 
+/** Drop interior flat samples so Catmull-Rom doesn't overshoot a long baseline. */
+function collapseInteriorPlateaus(points: EquityPoint[]): EquityPoint[] {
+  if (points.length < 4) return points;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  const out: EquityPoint[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const prev = out[out.length - 1];
+    const cur = points[i];
+    const next = points[i + 1];
+    if (eq(cur.indexed, prev.indexed) && eq(cur.indexed, next.indexed)) continue;
+    out.push(cur);
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 export function Sparkline({ points, width = 72, height = 28 }: Props) {
-  if (points.length < 2) return null;
-  const vals = points.map((p) => p.indexed);
+  const series = collapseInteriorPlateaus(points);
+  if (series.length < 2) return null;
+  const vals = series.map((p) => p.indexed);
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   const range = max - min;
@@ -20,17 +37,20 @@ export function Sparkline({ points, width = 72, height = 28 }: Props) {
   const first = vals[0];
   const up = last >= first;
   const color = flat ? '#707080' : up ? '#10B981' : '#F43F5E';
-  const padY = 2;
-  const midY = height / 2;
+  // Keep the stroke inside the viewBox — peaks used to clip and look washed out.
+  const padX = 3;
+  const padY = 4;
+  const innerW = Math.max(1, width - padX * 2);
+  const innerH = Math.max(1, height - padY * 2);
 
   const coords = vals.map((v, i) => {
-    const x = (i / (vals.length - 1)) * width;
+    const x = padX + (i / (vals.length - 1)) * innerW;
     const y = flat
-      ? midY
-      : height - padY / 2 - ((v - min) / span) * (height - padY);
+      ? height / 2
+      : padY + (1 - (v - min) / span) * innerH;
     return { x, y };
   });
-  const d = smoothLinePath(coords, 2);
+  const d = smoothLinePath(coords, 2, { yMin: padY, yMax: height - padY });
 
   return (
     <svg

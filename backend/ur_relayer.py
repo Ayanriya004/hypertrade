@@ -248,11 +248,11 @@ def release_lock(sb: SupabaseClient, relayer_address: str) -> None:
 #   1. Looks up the active job (must be in `awaiting_user_sig`)
 #   2. Selects the relayer (deterministic by user address)
 #   3. Acquires the per-relayer lock
-#   4. TODO(adam): build + sign + broadcast the actual chain tx
+#   4. TODO(ur): build + sign + broadcast the actual chain tx
 #   5. Atomically attaches the source-tx hash and flips status to `submitted`
 #
 # We deliberately keep the function signature stable across 1a -> 1b so the
-# only delta when Adam ships the gateway is the inner `_send_*_tx` body.
+# only delta when UR ships the gateway is the inner `_send_*_tx` body.
 # ---------------------------------------------------------------------------
 
 
@@ -293,7 +293,7 @@ def _send_permit_and_deposit_tx(  # pragma: no cover — wiring blocked on CASH_
         ) returns (uint256)
 
     On-chain gate: `hasRole(CASH_OPERATOR_ROLE, _msgSender())` — see source
-    line 178 + `ur_chain.CASH_OPERATOR_ROLE`. Will revert until UR (Adam)
+    line 178 + `ur_chain.CASH_OPERATOR_ROLE`. Will revert until UR
     grants the role to `relayer_address` on the deposit contract.
 
     Returns the broadcast tx hash (0x-prefixed hex). Raises on failure.

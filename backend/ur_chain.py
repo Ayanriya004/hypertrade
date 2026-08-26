@@ -129,7 +129,7 @@ _FIAT24_ACCOUNT: Dict[int, str] = {
 #
 # Arb Sepolia USD24 is recorded here so we can encode the `_outputToken`
 # parameter to depositTokenViaUsdc on Arbitrum without a Mantle round-trip.
-# Confirmed via forensic decode of Adam's reference 7702 tx:
+# Confirmed via forensic decode of a UR reference 7702 tx:
 #   https://sepolia.arbiscan.io/tx/0x5ea406e4aed50c8a89b3c19fb6836cfe476f49f32e632adfd0b52613807651c7
 #
 # The Arb Sepolia OFT shares the same address as Mantle Sepolia
@@ -146,7 +146,7 @@ _FIAT_TOKENS: Dict[str, Dict[int, str]] = {
     "USD24": {
         CHAIN_MANTLE_MAINNET: "0xD598839598bBF508b97697b7D9e80054D4bcaaCC",
         CHAIN_MANTLE_SEPOLIA: "0xdf79470986629ae4893BfCE0c6C0F4d085E99741",
-        # Same OFT address as Mantle Sepolia per Adam's reference tx
+        # Same OFT address as Mantle Sepolia per UR's reference tx
         # (`approve(0xCa8eFFac…, …)` followed by `depositTokenViaUsdc(
         # USDC, 0xdf794709…, …)`).
         CHAIN_ARBITRUM_SEPOLIA: "0xdf79470986629ae4893BfCE0c6C0F4d085E99741",
@@ -159,7 +159,7 @@ _FIAT_TOKENS: Dict[str, Dict[int, str]] = {
         # CREATE2-deterministic address). UR has only deployed USD24
         # cross-chain so far; until EUR24 lands on Arb's gateway,
         # digital deposits to EUR must go via USD24 + on-chain Convert.
-        # When Adam confirms the Arb deployment, add an entry here
+        # When UR confirms the Arb deployment, add an entry here
         # and re-run the probe.
     },
     "CHF24": {
@@ -331,7 +331,7 @@ _USDC: Dict[int, str] = {
     CHAIN_ARBITRUM_MAINNET: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     CHAIN_ARBITRUM_SEPOLIA: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
     # Mantle Sepolia USDC — the canonical token UR's onramp (fiat -> USDC
-    # cash-out) delivers on testnet. Per Adam, on-ramp is ONLY supported
+    # cash-out) delivers on testnet. Per UR, on-ramp is ONLY supported
     # on Mantle Sepolia in QA. Discovered by reading `usdc()` off both
     # Fiat24CryptoDeposit (0xd6d4…3d66) and Fiat24CryptoRelay (0x2C2E…067e)
     # on Mantle Sepolia — both agree on this address (symbol USDC, 6dp).
@@ -347,7 +347,7 @@ USDC_DECIMALS = 6
 
 
 # Allow ops to override any of the above without redeploying. Useful for
-# the partner gateway address Adam will eventually issue us.
+# the partner gateway address UR will eventually issue.
 _ENV_OVERRIDES = {
     "Fiat24CryptoDeposit": {
         CHAIN_ARBITRUM_MAINNET: "UR_DEPOSIT_GATEWAY_ARB_MAINNET",
@@ -870,7 +870,7 @@ FIAT24_DEPOSIT_ABI = [
 # Role hash for the on-chain operator role our relayer needs granted on
 # Fiat24CryptoDeposit (per source line 29). Computed at import time to
 # avoid the risk of a stale hardcoded keccak. Surface in logs and the
-# diagnostic CLI so it's trivial to verify with Adam.
+# diagnostic CLI so it's trivial to verify with the UR team.
 CASH_OPERATOR_ROLE_NAME = "CASH_OPERATOR_ROLE"
 CASH_OPERATOR_ROLE = Web3.keccak(text=CASH_OPERATOR_ROLE_NAME)
 
@@ -895,7 +895,7 @@ CASH_OPERATOR_ROLE = Web3.keccak(text=CASH_OPERATOR_ROLE_NAME)
 # We use Ambire's published, audited open-source contract (AGPL-3.0):
 #   https://github.com/AmbireTech/ambire-common/blob/v2/contracts/AmbireAccount7702.sol
 #
-# The Arb Sepolia delegate address below is the one UR (Adam) used in the
+# The Arb Sepolia delegate address below is the one UR used in the
 # reference transaction:
 #   https://sepolia.arbiscan.io/tx/0x5ea406e4aed50c8a89b3c19fb6836cfe476f49f32e632adfd0b52613807651c7
 # Mainnet/other-chain addresses get filled in once we confirm canonical
@@ -907,7 +907,7 @@ EIP7702_DESIGNATOR_PREFIX = "0xef0100"
 EIP7702_DESIGNATOR_LENGTH = 23  # bytes: 0xef + 0x01 + 0x00 + 20-byte impl
 
 _AMBIRE_7702_DELEGATE: Dict[int, str] = {
-    # Confirmed via forensic decode of Adam's reference tx — bytecode is
+    # Confirmed via forensic decode of UR's reference tx — bytecode is
     # 10,574 bytes and exposes selectors `0x6171d1c9` (execute) +
     # `0x1626ba7e` (isValidSignature) matching AmbireAccount.
     CHAIN_ARBITRUM_SEPOLIA: "0xe69407a48Da63bA34b306b5A0E97D94006c0530e",

@@ -5,7 +5,7 @@ Temporary dev/testing helper — gated by ENABLE_UR_TEST_WALLET_IMPORT=1.
 Key resolution priority (External Wallet Access mode):
 
   1. UR_TEST_OWNER_PRIVKEY_TESTNET / _MAINNET — the URID-owner key
-     (the address Adam minted the URID + test USDC + USD24 to). This is
+     (the address UR minted the URID + test USDC + USD24 to). This is
      what the user's Privy embedded wallet should hold so they can sign
      7702 + Ambire batches against the contract that whitelists their
      URID.

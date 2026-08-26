@@ -11,7 +11,7 @@
  * picker; the user can still see what's coming.
  *
  * NOTE on testnet: UR issues CHF + EUR IBANs by default for the test
- * URID. USD / SGD / HKD / JPY / GBP IBANs only land once Adam provisions
+ * URID. USD / SGD / HKD / JPY / GBP IBANs only land once UR provisions
  * them per partner. We fall back to a "Coming soon" tile rather than
  * hiding the rows so the user sees what's promised.
  */

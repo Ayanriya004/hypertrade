@@ -11072,12 +11072,12 @@ async def dev_import_ur_test_wallet(
 # Design notes:
 #
 # - Quote endpoints proxy UR's REST quote APIs. The exact paths are
-#   placeholders pending Adam's Managed Custody spec; once confirmed we
+#   placeholders pending UR's Managed Custody spec; once confirmed we
 #   only need to flip the constants below.
 # - Execute endpoints persist a job (atomic, idempotent via
 #   `(privy_user_id, idempotency_key)`) then dispatch through
 #   `ur_relayer.dispatch_*_job`. The dispatcher is currently a stub raising
-#   `URRelayerError("waiting on Adam")` — this is fine. The persisted job
+#   `URRelayerError("waiting on UR")` — this is fine. The persisted job
 #   row + clean error response let the frontend exercise the full UX path.
 # - GET /api/ur/jobs and /api/ur/jobs/{id} are reads; status transitions
 #   happen elsewhere (executor + webhook handler) so concurrent replicas
@@ -11087,8 +11087,8 @@ async def dev_import_ur_test_wallet(
 # --------------------------------------------------------------------------- #
 
 
-# Quote endpoint paths — flip when Adam confirms the Managed Custody spec.
-# TODO(adam-managed-custody): confirm these names. Today they mirror the
+# Quote endpoint paths — flip when UR confirms the Managed Custody spec.
+# TODO(ur-managed-custody): confirm these names. Today they mirror the
 # Delegated/V4 OpenAPI paths.
 _UR_QUOTE_DEPOSIT_PATH = "/v1/deposit/quote"
 # Withdraw uses UR's "onramp" endpoint family (USD24 -> USDC). The helpers
@@ -11826,7 +11826,7 @@ def _effective_deposit_target_amount(
 
     # Non-USD target: read the live Fiat24 rate from Mantle's relay
     # contract and apply it to the USD24-equivalent of the USDC input.
-    # The deposit gateway uses the SAME oracle internally (Adam's
+    # The deposit gateway uses the SAME oracle internally (UR's
     # reference deposits confirm this), so the answer here matches
     # what the destination chain will mint.
     try:
@@ -12033,9 +12033,9 @@ async def ur_deposit_7702_info(
 def _currency_code_for(currency: str) -> int:
     """Map ISO currency code -> UR's on-chain currency enum.
 
-    TODO(adam-managed-custody): confirm the enum mapping. These are
+    TODO(ur-managed-custody): confirm the enum mapping. These are
     placeholder values matching UR's docs ordering (USD=1, EUR=2, ...).
-    The handler tolerates whatever Adam returns — this just keeps the
+    The handler tolerates whatever UR returns — this just keeps the
     type system happy until then.
     """
     code = (currency or "").upper().replace("24", "")
@@ -12054,7 +12054,7 @@ def _currency_code_for(currency: str) -> int:
 def _validate_withdraw_dest_chain(dest_chain_id: int) -> None:
     """Reject withdraw destinations UR's onramp doesn't support.
 
-    Per Adam (May 2026): on testnet, UR's onramp (fiat -> USDC cash-out)
+    Per UR (May 2026): on testnet, UR's onramp (fiat -> USDC cash-out)
     ONLY supports Mantle Sepolia (5003) as the destination chain — there
     are no testnet BufferPool deployments on Arbitrum/Base/etc. On mainnet
     we allow the chains where UR has a live BufferPool + a USDC address we
@@ -15852,7 +15852,7 @@ def _to_token_units(amount: str, decimals: int) -> int:
 #
 # Implications for the FX flow:
 #   1. /api/fma/v1/* (Managed Custody) endpoints are the WRONG family for us.
-#      Adam's earlier note "if u start as managed custody mode then is eligible
+#      UR's earlier note "if u start as managed custody mode then is eligible
 #      to use fma prefixed endpoint" is conditional — we don't qualify, and
 #      the "user turnkey address not set" error is UR's API politely telling
 #      us to sign the action ourselves.
@@ -15872,9 +15872,9 @@ def _to_token_units(amount: str, decimals: int) -> int:
 #   support + a confirmed Ambire delegate). Mantle Sepolia 7702 status is
 #   uncertain, and the user already has MNT capability for gas — direct
 #   user-signed call is the safest validation path. 7702 on Mantle can be a
-#   follow-up optimisation once Adam confirms a delegate address there.
+#   follow-up optimisation once UR confirms a delegate address there.
 #
-# Future migration to Managed Custody: if/when Adam moves us to MC, the
+# Future migration to Managed Custody: if/when UR moves us to MC, the
 # vault would hold fiat balances and FX would route through the Turnkey-
 # signed /api/fma/v1/fx-exchange path. We've left ur_api.{get,submit}_fx_async
 # in place (marked DEPRECATED) so the cutover is a one-import change.

@@ -2371,18 +2371,26 @@ const INTERNAL_CAPITAL_LEDGER_TYPES = new Set([
  * leaks into `pnlHistory` as fake trading PnL. Subtract this from the
  * displayed period figure.
  *
- * Same-address dex shuffles (`user === destination === self`, e.g. unified
- * spot → HIP-3 JIT) are skipped — they don't change equity.
+ * Amounts are unsigned in the ledger (`user` = sender, `destination` =
+ * recipient). Same-address dex shuffles are skipped. Pass `counterparties`
+ * (the other book: Dedicated subs on Main, master on a sub) so we only
+ * strip those moves — and so a Main series is never adjusted with a sub
+ * ledger (that double-applies a 1k fund as −2k).
  */
 export function netInternalCapitalInflowUsd(
   ledger: unknown,
   address: string,
   startMs = 0,
   endMs = Number.POSITIVE_INFINITY,
+  counterparties?: Iterable<string>,
 ): number {
   const self = String(address ?? '').toLowerCase();
   if (!self.startsWith('0x')) return 0;
+  const peers = new Set(
+    [...(counterparties ?? [])].map((a) => String(a ?? '').toLowerCase()).filter((a) => a.startsWith('0x') && a !== self),
+  );
   const rows = Array.isArray(ledger) ? ledger : [];
+  const seen = new Set<string>();
   let net = 0;
   for (const row of rows) {
     const time = Number(row?.time ?? 0);
@@ -2396,6 +2404,11 @@ export function netInternalCapitalInflowUsd(
     if (!dest && !user) continue;
     if (dest === self && user === self) continue;
 
+    if (peers.size > 0) {
+      const otherIsPeer = (dest.startsWith('0x') && peers.has(dest)) || (user.startsWith('0x') && peers.has(user));
+      if (!otherIsPeer) continue;
+    }
+
     let usd = parseLedgerUsd(delta?.usdcValue ?? delta?.usdc);
     if (!Number.isFinite(usd)) {
       const token = String(delta?.token ?? '').toUpperCase();
@@ -2404,6 +2417,7 @@ export function netInternalCapitalInflowUsd(
       }
     }
     if (!Number.isFinite(usd) || usd === 0) continue;
+    const mag = Math.abs(usd);
 
     const feeRaw = parseLedgerUsd(delta?.fee);
     const feeToken = String(delta?.feeToken ?? 'USDC').toUpperCase();
@@ -2412,9 +2426,24 @@ export function netInternalCapitalInflowUsd(
         ? feeRaw
         : 0;
 
-    if (dest === self) net += usd;
-    else if (user === self) net -= usd + feeUsd;
-    else if (dest !== self) net -= usd + feeUsd;
+    const hash = String(row?.hash ?? '').toLowerCase();
+    const dedupe = hash.startsWith('0x') ? hash : `${time}|${user}|${dest}|${mag}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+
+    // Direction from addresses only — never trust the unsigned amount's sign.
+    if (peers.size > 0) {
+      if (peers.has(dest) && dest !== self) {
+        net -= mag + feeUsd;
+        continue;
+      }
+      if (peers.has(user) && user !== self) {
+        net += mag;
+        continue;
+      }
+    }
+    if (dest === self) net += mag;
+    else if (user === self) net -= mag + feeUsd;
   }
   return net;
 }

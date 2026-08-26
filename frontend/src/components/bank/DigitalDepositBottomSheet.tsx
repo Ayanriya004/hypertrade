@@ -43,7 +43,7 @@
  *      the parent Cash tab so the new USD24 balance shows up.
  *
  * NOTE on chain: we use Arbitrum Sepolia (421614) for testnet. The
- * source chain flips to Arbitrum Mainnet (42161) once Adam grants
+ * source chain flips to Arbitrum Mainnet (42161) once UR grants
  * production access — controlled via EXPO_PUBLIC_UR_SOURCE_CHAIN_ID.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';

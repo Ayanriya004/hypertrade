@@ -12,7 +12,7 @@
  *
  * Why this file exists (do NOT inline these into bottom sheets):
  * The Ambire batch hash + signature normalisation rules are subtle and
- * were derived by forensic decoding of an UR/Adam reference tx on
+ * were derived by forensic decoding of a UR reference tx on
  * Arb Sepolia (0x87f7e974…). Drift between sheets would silently
  * produce invalid signatures that ecrecover to a random address —
  * a class of bug we never want to debug twice.

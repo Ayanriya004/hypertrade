@@ -354,7 +354,11 @@ export default function PortfolioScreen() {
     refetchInterval: hlWsLive ? 60_000 : 8_000,
   });
 
-  const { data: dedicatedPnlTimeseries, isFetching: dedicatedPnlFetching, isPending: dedicatedPnlPending } = useQuery({
+  const {
+    data: dedicatedPnlTimeseries,
+    isPending: dedicatedPnlPending,
+    isPlaceholderData: dedicatedPnlPlaceholder,
+  } = useQuery({
     queryKey: ['hl_pnl_timeseries', viewAddress, 'dedicated_book'],
     queryFn: () => getHistoricalPnlTimeseries(viewAddress),
     enabled: isDedicatedBook && !!viewAddress && isAuthenticated,
@@ -362,13 +366,22 @@ export default function PortfolioScreen() {
     placeholderData: keepPreviousData,
   });
 
-  const { data: dedicatedPortfolioSummary, isFetching: dedicatedSummaryFetching, isPending: dedicatedSummaryPending } = useQuery({
+  const {
+    data: dedicatedPortfolioSummary,
+    isPending: dedicatedSummaryPending,
+    isPlaceholderData: dedicatedSummaryPlaceholder,
+  } = useQuery({
     queryKey: ['hl_portfolio_summary', viewAddress, 'dedicated_book'],
     queryFn: () => getUserPortfolioSummary(viewAddress),
     enabled: isDedicatedBook && !!viewAddress && isAuthenticated,
     refetchInterval: 60_000,
     placeholderData: keepPreviousData,
   });
+
+  const dedicatedPnlReady =
+    isDedicatedBook && !!dedicatedPnlTimeseries && !dedicatedPnlPending && !dedicatedPnlPlaceholder;
+  const dedicatedSummaryReady =
+    isDedicatedBook && !!dedicatedPortfolioSummary && !dedicatedSummaryPending && !dedicatedSummaryPlaceholder;
 
   // Ledger used to strip Dedicated↔Main sendAsset out of Net PnL.
   // One fetch per book address, no interval — transfers are rare; we
@@ -752,26 +765,31 @@ export default function PortfolioScreen() {
     return summary.allTimePnl != null || summary.allTimeVlm != null;
   }, []);
 
+  const pnlCounterparties = useMemo(() => {
+    const subs = dedicatedBooks
+      .map((a) => a.hlSubaccountAddress)
+      .filter((a): a is string => !!a && a.toLowerCase().startsWith('0x'));
+    if (isDedicatedBook) {
+      const master = (embeddedAddress || userPortfolioAddress || '') as string;
+      return master.toLowerCase().startsWith('0x') ? [master] : [];
+    }
+    return subs;
+  }, [dedicatedBooks, embeddedAddress, isDedicatedBook, userPortfolioAddress]);
+
   const portfolioSummary = useMemo(() => {
     if (isDedicatedBook) {
-      if (dedicatedPortfolioSummary) return dedicatedPortfolioSummary;
-      // Hold the last Main summary while the Dedicated book fetches so the
-      // PnL/volume cards tween instead of flashing `--` / skeleton.
-      if (dedicatedSummaryFetching || dedicatedPnlFetching) {
-        if (pickSummary(portfolioSummaryUser)) return portfolioSummaryUser;
-        if (pickSummary(portfolioSummaryEmbedded)) return portfolioSummaryEmbedded;
-        return portfolioSummaryUser ?? portfolioSummaryEmbedded ?? null;
-      }
-      return null;
+      // Never paint Main's summary on a Dedicated book — a fund looks like
+      // −1k on Main and +1k on the sub, and mixing them with the sub ledger
+      // turns a 1k sendAsset into −2k Net PnL.
+      return dedicatedSummaryReady ? dedicatedPortfolioSummary ?? null : null;
     }
     if (pickSummary(portfolioSummaryUser)) return portfolioSummaryUser;
     if (pickSummary(portfolioSummaryEmbedded)) return portfolioSummaryEmbedded;
     return portfolioSummaryUser ?? portfolioSummaryEmbedded ?? null;
   }, [
     isDedicatedBook,
+    dedicatedSummaryReady,
     dedicatedPortfolioSummary,
-    dedicatedSummaryFetching,
-    dedicatedPnlFetching,
     pickSummary,
     portfolioSummaryEmbedded,
     portfolioSummaryUser,
@@ -779,14 +797,7 @@ export default function PortfolioScreen() {
 
   const pnlTimeseries = useMemo(() => {
     if (isDedicatedBook) {
-      if (dedicatedPnlTimeseries) return dedicatedPnlTimeseries;
-      if (dedicatedPnlFetching || dedicatedSummaryFetching) {
-        if (portfolioSummary && pickSummary(portfolioSummary)) {
-          return portfolioSummary === portfolioSummaryUser ? pnlTimeseriesUser : pnlTimeseriesEmbedded;
-        }
-        return pnlTimeseriesUser ?? pnlTimeseriesEmbedded ?? null;
-      }
-      return null;
+      return dedicatedPnlReady ? dedicatedPnlTimeseries ?? null : null;
     }
     if (portfolioSummary && pickSummary(portfolioSummary)) {
       return portfolioSummary === portfolioSummaryUser ? pnlTimeseriesUser : pnlTimeseriesEmbedded;
@@ -794,14 +805,12 @@ export default function PortfolioScreen() {
     return pnlTimeseriesUser ?? pnlTimeseriesEmbedded ?? null;
   }, [
     isDedicatedBook,
+    dedicatedPnlReady,
     dedicatedPnlTimeseries,
-    dedicatedPnlFetching,
-    dedicatedSummaryFetching,
     pickSummary,
     pnlTimeseriesEmbedded,
     pnlTimeseriesUser,
     portfolioSummary,
-    portfolioSummaryEmbedded,
     portfolioSummaryUser,
   ]);
 
@@ -836,7 +845,13 @@ export default function PortfolioScreen() {
     }
 
     if (hlPnl == null || !viewAddress) return hlPnl;
-    const inflow = netInternalCapitalInflowUsd(capitalLedger, viewAddress, windowStartMs, windowEndMs);
+    const inflow = netInternalCapitalInflowUsd(
+      capitalLedger,
+      viewAddress,
+      windowStartMs,
+      windowEndMs,
+      pnlCounterparties,
+    );
     if (!Number.isFinite(inflow) || inflow === 0) return hlPnl;
     return hlPnl - inflow;
   }, [
@@ -846,6 +861,7 @@ export default function PortfolioScreen() {
     pnlTimeseries?.allTime,
     capitalLedger,
     viewAddress,
+    pnlCounterparties,
   ]);
 
   const selectedVolume = useMemo(() => {
@@ -881,7 +897,7 @@ export default function PortfolioScreen() {
     if (!isAuthenticated) return false;
     if (isDedicatedBook) {
       if (!viewAddress) return true;
-      return dedicatedPnlPending || dedicatedSummaryPending;
+      return !dedicatedPnlReady || !dedicatedSummaryReady;
     }
     const hasUser = !!userPortfolioAddress;
     const embEnabled =
@@ -894,8 +910,8 @@ export default function PortfolioScreen() {
     isAuthenticated,
     isDedicatedBook,
     viewAddress,
-    dedicatedPnlPending,
-    dedicatedSummaryPending,
+    dedicatedPnlReady,
+    dedicatedSummaryReady,
     userPortfolioAddress,
     embeddedPortfolioAddress,
     pnlTimeseriesUserPending,

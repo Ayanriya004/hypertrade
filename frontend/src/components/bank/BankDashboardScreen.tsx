@@ -173,7 +173,7 @@ export function BankDashboardScreen() {
   // Withdraw (cash-out) sheet — USD24/EUR24/CHF24 -> USDC via gasless EIP-2612
   // permit on-ramp (External Wallet Access). See WithdrawBottomSheet.tsx.
   // NOTE: submit is UR-region-gated on testnet today — sheet surfaces it as a
-  // clean error; flow is otherwise fully wired (Adam pinged 2026-05-29).
+  // clean error; flow is otherwise fully wired (confirmed with UR 2026-05-29).
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   // Send (cash pay-out) sheet — USD24/EUR24/CHF24 -> external bank account via
   // gasless EIP-2612 permit (External Wallet Access §6). Same testnet gates as

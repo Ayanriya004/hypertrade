@@ -1372,7 +1372,7 @@ async def submit_fx_async(
 #
 # Strategy: we intend to operate in Card Mode: Fiat Only (the card auto-debits
 # from the user's UR fiat balance — no partner-side per-swipe infra). Confirm
-# this with Adam before going live (see TODO(adam) below).
+# this with the UR team before going live.
 # ---------------------------------------------------------------------------
 
 
@@ -1389,7 +1389,7 @@ async def open_card_async(*, ur_id: int) -> Dict[str, Any]:
       - The user has no existing card if UR allows one per user
       - User balance satisfies ``cardActivation.{amount, currency}``
 
-    On QA testnet this almost certainly fails until Adam provisions the user
+    On QA testnet this almost certainly fails until UR provisions the user
     properly — see ur_e2e_test_card.py for a clean reproduction.
     """
     return await partner_call_async(

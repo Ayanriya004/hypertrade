@@ -38,6 +38,8 @@ import { useDisplayCurrency } from '../src/providers/CurrencyProvider';
 import { useAuth } from '../src/providers/AuthContext';
 import { useAppStore } from '../src/store/appStore';
 import { useActiveEthereumWallet } from '../src/hooks/useActiveEthereumWallet';
+import { isHlSigningChainError, isWalletUserRejectedRequest } from '../src/lib/hlWalletChain';
+import { ensureExternalWalletOnHlSigningChain } from '../src/lib/externalWalletConnect';
 import {
   approveNamedAgent,
   createHlSubAccount,
@@ -139,13 +141,7 @@ function pickAgentSlotToFree(
 
 /** WalletConnect / MetaMask / etc. when the user declines the signature prompt. */
 function isWalletSignatureRejected(err: unknown): boolean {
-  const e = err as { code?: number | string; message?: string; shortMessage?: string } | null;
-  const code = e?.code;
-  if (code === 4001 || code === 'ACTION_REJECTED' || code === 'USER_REJECTED') return true;
-  const msg = `${e?.message ?? ''} ${e?.shortMessage ?? ''}`.toLowerCase();
-  return /user rejected|user denied|rejected by user|request rejected|user cancelled|user canceled|denied transaction|action_rejected/.test(
-    msg
-  );
+  return isWalletUserRejectedRequest(err);
 }
 
 /**
@@ -214,6 +210,10 @@ async function withExternalWalletSign<T>(
       if (err instanceof Error && err.message === '__approve_pending__') throw err;
     }
   }
+
+  // No-op for embedded wallets; for WalletConnect sessions this parks MetaMask
+  // on Arbitrum so the EIP-712 prompt isn't rejected with a chainId mismatch.
+  await ensureExternalWalletOnHlSigningChain();
 
   const signPromise = start();
   externalWalletSignLock = signPromise;
@@ -1160,7 +1160,7 @@ export default function AiAgentsScreen() {
       return;
     }
     setCreating(true);
-    const signTimeoutMs = isExternal ? 45_000 : 90_000;
+    const signTimeoutMs = 90_000;
     const stillCurrent = () => true;
     try {
       // Dedicated: createSub → unify sub → sendAsset spot fund (master-signed).
@@ -1265,6 +1265,8 @@ export default function AiAgentsScreen() {
       const msg = String(e?.message ?? '');
       if (isWalletSignatureRejected(e)) {
         showInfo(t('aiAgents.approveRejectedTitle'), t('aiAgents.approveRejected'));
+      } else if (isHlSigningChainError(e)) {
+        showInfo(t('aiAgents.approveChainSwitchTitle'), t('aiAgents.approveChainSwitch'));
       } else if (msg === '__approve_pending__') {
         showInfo(t('aiAgents.approveTimeoutTitle'), t('aiAgents.approvePendingRetry'));
       } else if (msg === '__approve_timeout__' || msg === '__approve_aborted__') {
@@ -1529,7 +1531,7 @@ export default function AiAgentsScreen() {
       // External WC sessions often never resolve if the user backs out of the
       // wallet — time-box so the button unlocks for a retry (resume must NOT
       // abort the promise; that raced the returning signature).
-      const signTimeoutMs = isExternal ? 45_000 : 90_000;
+      const signTimeoutMs = 90_000;
       const pollAttempts = isExternal ? 8 : 12;
       const pollDelayMs = isExternal ? 2_000 : 2_500;
       const preflightAttempts = isExternal ? 4 : 3;
@@ -1605,6 +1607,8 @@ export default function AiAgentsScreen() {
         // approveNamedAgent does. Unlock quietly with a soft message.
         if (isWalletSignatureRejected(e)) {
           showInfo(t('aiAgents.approveRejectedTitle'), t('aiAgents.approveRejected'));
+        } else if (isHlSigningChainError(e)) {
+          showInfo(t('aiAgents.approveChainSwitchTitle'), t('aiAgents.approveChainSwitch'));
         } else if (msg === '__approve_pending__') {
           showInfo(t('aiAgents.approveTimeoutTitle'), t('aiAgents.approvePendingRetry'));
         } else if (msg === '__approve_timeout__' || msg === '__approve_aborted__') {
@@ -1935,7 +1939,7 @@ export default function AiAgentsScreen() {
             setBusyAction(null);
           }
         };
-        const signTimeoutMs = isExternal ? 45_000 : 90_000;
+        const signTimeoutMs = 90_000;
         try {
           // Slot already free on HL (prior attempt signed while we were away)?
           if (freeDbId) {
@@ -1962,12 +1966,13 @@ export default function AiAgentsScreen() {
           if (!stillCurrent()) return;
           const walletProvider = await wallet.getProvider();
           if (!stillCurrent()) return;
-          await raceWalletSignature(
-            revokeNamedAgent({
-              userWalletProvider: walletProvider,
-              userAddress: address as `0x${string}`,
-              agentName: freeName,
-            }),
+          await withExternalWalletSign(
+            () =>
+              revokeNamedAgent({
+                userWalletProvider: walletProvider,
+                userAddress: address as `0x${string}`,
+                agentName: freeName,
+              }),
             { timeoutMs: signTimeoutMs, isCurrent: stillCurrent },
           );
           if (!stillCurrent()) return;
@@ -1988,6 +1993,8 @@ export default function AiAgentsScreen() {
           const msg = String(e?.message ?? '');
           if (isWalletSignatureRejected(e)) {
             showInfo(t('aiAgents.approveRejectedTitle'), t('aiAgents.approveRejected'));
+          } else if (isHlSigningChainError(e)) {
+            showInfo(t('aiAgents.approveChainSwitchTitle'), t('aiAgents.approveChainSwitch'));
           } else if (msg === '__approve_timeout__' || msg === '__approve_aborted__' || isTransientNetworkError(e)) {
             // Signed while away? If the slot is already free on HL, continue.
             try {
@@ -2037,7 +2044,7 @@ export default function AiAgentsScreen() {
             setBusyAction(null);
           }
         };
-        const signTimeoutMs = isExternal ? 45_000 : 90_000;
+        const signTimeoutMs = 90_000;
         const hlArgs = {
           userAddress: address as `0x${string}`,
           agentName: agent.hlAgentName,
@@ -2092,12 +2099,13 @@ export default function AiAgentsScreen() {
 
           const walletProvider = await wallet.getProvider();
           if (!stillCurrent()) return;
-          await raceWalletSignature(
-            revokeNamedAgent({
-              userWalletProvider: walletProvider,
-              userAddress: address as `0x${string}`,
-              agentName: agent.hlAgentName,
-            }),
+          await withExternalWalletSign(
+            () =>
+              revokeNamedAgent({
+                userWalletProvider: walletProvider,
+                userAddress: address as `0x${string}`,
+                agentName: agent.hlAgentName,
+              }),
             { timeoutMs: signTimeoutMs, isCurrent: stillCurrent },
           );
           if (!stillCurrent()) {
@@ -2119,6 +2127,8 @@ export default function AiAgentsScreen() {
           const msg = String(e?.message ?? '');
           if (isWalletSignatureRejected(e)) {
             showInfo(t('aiAgents.approveRejectedTitle'), t('aiAgents.revokeRejected'));
+          } else if (isHlSigningChainError(e)) {
+            showInfo(t('aiAgents.approveChainSwitchTitle'), t('aiAgents.approveChainSwitch'));
           } else if (
             msg === '__approve_timeout__' ||
             msg === '__approve_aborted__' ||
@@ -2161,7 +2171,7 @@ export default function AiAgentsScreen() {
             setBusyAction(null);
           }
         };
-        const signTimeoutMs = isExternal ? 45_000 : 90_000;
+        const signTimeoutMs = 90_000;
         try {
           // Non-draft / non-revoked agents that still hold an on-chain approval
           // must free that slot before the DB row disappears. Already-revoked
@@ -2191,12 +2201,13 @@ export default function AiAgentsScreen() {
                 agentAddress: agent.hlAgentAddress,
               };
               try {
-                await raceWalletSignature(
-                  revokeNamedAgent({
-                    userWalletProvider: walletProvider,
-                    userAddress: address as `0x${string}`,
-                    agentName: agent.hlAgentName,
-                  }),
+                await withExternalWalletSign(
+                  () =>
+                    revokeNamedAgent({
+                      userWalletProvider: walletProvider,
+                      userAddress: address as `0x${string}`,
+                      agentName: agent.hlAgentName,
+                    }),
                   { timeoutMs: signTimeoutMs, isCurrent: stillCurrent },
                 );
               } catch (revokeErr) {
@@ -2223,6 +2234,8 @@ export default function AiAgentsScreen() {
           const msg = String(e?.message ?? '');
           if (isWalletSignatureRejected(e)) {
             showInfo(t('aiAgents.approveRejectedTitle'), t('aiAgents.deleteRevokeRejected'));
+          } else if (isHlSigningChainError(e)) {
+            showInfo(t('aiAgents.approveChainSwitchTitle'), t('aiAgents.approveChainSwitch'));
           } else if (msg === '__approve_timeout__' || msg === '__approve_aborted__') {
             showInfo(t('aiAgents.approveTimeoutTitle'), t('aiAgents.revokeTimeout'));
           } else {
@@ -2950,7 +2963,7 @@ export default function AiAgentsScreen() {
       );
       setTransferBusy(true);
       setTransferError(null);
-      const signTimeoutMs = isExternal ? 45_000 : 90_000;
+      const signTimeoutMs = 90_000;
       const stillCurrent = () => true;
       try {
         const walletProvider = await wallet.getProvider();
@@ -3042,6 +3055,8 @@ export default function AiAgentsScreen() {
         const msg = String(e?.message ?? '');
         if (isWalletSignatureRejected(e)) {
           setTransferError(t('aiAgents.approveRejected'));
+        } else if (isHlSigningChainError(e)) {
+          setTransferError(t('aiAgents.approveChainSwitch'));
         } else if (msg === '__approve_pending__') {
           setTransferError(t('aiAgents.approvePendingRetry'));
         } else if (msg === '__approve_timeout__' || msg === '__approve_aborted__') {

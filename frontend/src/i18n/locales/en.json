@@ -234,6 +234,8 @@
     "approveTimeoutTitle": "No response from wallet",
     "approveTimeout": "The signature request may still be waiting in your wallet app. Open it — sign if you see a prompt, or reject/dismiss a stuck loading request — then tap Activate again.",
     "approvePendingRetry": "A previous signature request is still open in your wallet. Open the wallet app, reject or complete that request, then tap Activate again.",
+    "approveChainSwitchTitle": "Stay on Arbitrum",
+    "approveChainSwitch": "Keep your wallet on Arbitrum One and try again. If nothing appears, disconnect and reconnect the wallet.",
     "actionFailed": "Action failed",
     "walletNotReady": "Wallet not ready",
     "empty": "No agents yet. Create one to let AI trade a ticker for you — you stay in full control.",
@@ -875,7 +877,9 @@
       "resume": "Continue in wallet",
       "rejected": "Signature declined. You can resume anytime.",
       "sessionExpired": "Wallet session expired. Reconnect your wallet and try again.",
+      "chainSwitch": "Your wallet is on a different network than this request. Dismiss the failed prompt, then tap continue.",
       "failed": "Setup could not be completed. Please try again.",
+      "timeout": "Your wallet didn't return the signature. If you already signed, tap continue. If a request is still loading in the wallet, dismiss it, then try again.",
       "confirming": "Confirming…",
       "ownerMismatch": "Connected wallet does not match your account. Reconnect the wallet you signed in with, then try again.",
       "step": {

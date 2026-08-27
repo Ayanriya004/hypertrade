@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { AppState } from 'react-native';
 import { HttpTransport, ExchangeClient, InfoClient } from '@nktkas/hyperliquid';
 import { SymbolConverter, formatPrice, formatSize } from '@nktkas/hyperliquid/utils';
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts';
@@ -12,12 +13,12 @@ import { getGlobalBuilderFee } from '../providers/BuilderConfigProvider';
 import {
   getHlInfoUrl,
   getHlExchangeSignatureChainId,
-  getHlWithdrawSignatureChainId,
   shouldUseTestnetTransport,
   getTradingEnv,
   envScopedKey,
   onTradingEnvChange,
 } from './hlEnv';
+import { isWalletUserRejectedRequest, parseTypedDataChainMismatch } from './hlWalletChain';
 import type { TradingEnv } from '../store/appStore';
 import { apiTracker } from './apiTracker';
 
@@ -75,10 +76,9 @@ export function getSpotBuilderFeeTenthsBps(): number {
   const globalFee = getGlobalBuilderFee();
   return Number.isFinite(globalFee) && globalFee > 0 ? globalFee : HL_SPOT_BUILDER_FEE_TENTHS_BPS;
 }
-// Hyperliquid EIP-712 signature chainId — kept as exports for backward-compat,
-// but new code should call getHlExchangeSignatureChainId() / getHlWithdrawSignatureChainId()
-// from ./hlEnv so testnet/demo mode picks up the right value automatically.
-export const HL_SIGNATURE_CHAIN_ID = '0x66eee' as const;
+// Backward-compat aliases. User-signed HL actions should read the wallet's
+// active chain (see createUserExchangeClient). These constants are fallbacks.
+export const HL_SIGNATURE_CHAIN_ID = '0xa4b1' as const;
 export const HL_WITHDRAW_SIGNATURE_CHAIN_ID = '0xa4b1' as const;
 
 // SecureStore keys — namespaced by trading env so a mainnet-approved agent
@@ -2522,6 +2522,78 @@ export function createViemJsonRpcAccount(args: { provider: Eip1193Provider; addr
   };
 }
 
+function normalizeHexChainId(hex: string): `0x${string}` | null {
+  if (!/^0x[0-9a-fA-F]+$/.test(hex)) return null;
+  try {
+    return `0x${BigInt(hex).toString(16)}` as `0x${string}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `signatureChainId` for user-signed HL actions. Hyperliquid accepts any id as
+ * long as it matches the EIP-712 domain; wallets require it to match their
+ * selected network.
+ *
+ * Embedded Privy providers answer `eth_chainId` with the wallet's real chain.
+ * WalletConnect/AppKit providers answer with the dapp-session default chain
+ * (Arbitrum) — NOT the network selected inside MetaMask — which is why external
+ * flows call `ensureExternalWalletOnHlSigningChain()` first to move the wallet
+ * onto Arbitrum before any typed-data prompt (same requirement as HL's own UI).
+ */
+async function readWalletSignatureChainId(
+  provider: Eip1193Provider,
+): Promise<`0x${string}`> {
+  try {
+    const hex = await provider.request({ method: 'eth_chainId' });
+    if (typeof hex === 'string') {
+      const normalized = normalizeHexChainId(hex);
+      if (normalized) return normalized;
+    }
+  } catch {
+    /* wallet may not answer; use env fallback */
+  }
+  return getHlExchangeSignatureChainId();
+}
+
+async function createUserExchangeClient(
+  provider: Eip1193Provider,
+  address: Hex,
+  chainIdOverride?: `0x${string}`,
+) {
+  const wallet = createViemJsonRpcAccount({ provider, address });
+  const signatureChainId = chainIdOverride ?? (() => readWalletSignatureChainId(provider));
+  return new ExchangeClient({
+    transport: getHlTransport(),
+    wallet,
+    signatureChainId,
+  });
+}
+
+async function withUserSignedExchange<T>(
+  provider: Eip1193Provider,
+  address: Hex,
+  fn: (exchange: ExchangeClient) => Promise<T>,
+): Promise<T> {
+  const run = (chain?: `0x${string}`) =>
+    createUserExchangeClient(provider, address, chain).then(fn);
+
+  try {
+    return await run();
+  } catch (err) {
+    // Backstop only (e.g. the user declined the network-switch request): retry
+    // ONCE on the chain the wallet says it is actually on. Never loop — every
+    // extra attempt is another wallet round-trip the user has to sit through.
+    const mismatch = parseTypedDataChainMismatch(err);
+    if (!mismatch?.active) throw err;
+    if (__DEV__) {
+      console.log('[hl] EIP-712 chain mismatch; single retry on wallet chain', mismatch);
+    }
+    return await run(mismatch.active);
+  }
+}
+
 export async function setupTradingAccount(args: {
   userWalletProvider: Eip1193Provider;
   userAddress: Hex;
@@ -2529,31 +2601,30 @@ export async function setupTradingAccount(args: {
   /** Deprecated/ignored: HIP-3 trading no longer requires enabling dex abstraction on the agent. */
   agentPrivateKey?: Hex;
 }): Promise<void> {
-  const wallet = createViemJsonRpcAccount({ provider: args.userWalletProvider, address: args.userAddress });
-  const exchange = new ExchangeClient({ transport: getHlTransport(), wallet, signatureChainId: getHlExchangeSignatureChainId() });
+  const { userWalletProvider: provider, userAddress } = args;
 
   // 1) Approve the agent (API wallet) for one-tap trading.
-  await exchange.approveAgent({ agentAddress: args.agentAddress, agentName: 'HyperTrade' });
+  await withUserSignedExchange(provider, userAddress, (exchange) =>
+    exchange.approveAgent({ agentAddress: args.agentAddress, agentName: 'HyperTrade' }),
+  );
 
   // 2) Approve builder fee cap for the active builder address (10 bps).
-  // Use the same dynamic address that order placement uses, otherwise a
-  // server-configured builder can be approved under one address while orders
-  // submit with another.
-  await exchange.approveBuilderFee({
-    builder: getBuilderAddress() as Hex,
-    maxFeeRate: HL_BUILDER_MAX_FEE_RATE,
-  });
+  await withUserSignedExchange(provider, userAddress, (exchange) =>
+    exchange.approveBuilderFee({
+      builder: getBuilderAddress() as Hex,
+      maxFeeRate: HL_BUILDER_MAX_FEE_RATE,
+    }),
+  );
 
-  // 3) Move app users into HL's recommended consumer mode. Unified account
-  // makes USDC a single source for main perps, HIP-3 perps, and spot trading,
-  // removing the user-facing DEX balance silos that Standard mode exposes.
-  // Portfolio-margin users are already pooled, so leave them in place.
+  // 3) Move app users into HL's recommended consumer mode.
   const currentMode = await getUserAbstractionMode(args.userAddress).catch(() => null);
   if (!isPooledAccountMode(currentMode)) {
-    await (exchange as any).userSetAbstraction({
-      user: args.userAddress,
-      abstraction: 'unifiedAccount',
-    });
+    await withUserSignedExchange(provider, userAddress, (exchange) =>
+      (exchange as any).userSetAbstraction({
+        user: args.userAddress,
+        abstraction: 'unifiedAccount',
+      }),
+    );
   }
 }
 
@@ -2678,40 +2749,142 @@ export type SeamlessStepPhase = 'signing' | 'done';
  *                     recalled, but no further prompts are issued).
  */
 function isUserRejectedWalletError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err ?? '');
-  return /user rejected|user denied|rejected the request|denied request|request rejected|user cancel/i.test(msg);
-}
-
-function stepSatisfied(status: SeamlessSetupStatus, step: SeamlessStepId): boolean {
-  if (step === 'agent') return status.agent;
-  if (step === 'builderFee') return status.builderFee;
-  return status.accountMode;
+  return isWalletUserRejectedRequest(err);
 }
 
 /**
- * WalletConnect often rejects the local promise when returning from the wallet
- * app even though the user approved and HL already applied the action. Poll HL
- * briefly before treating that as a hard failure so the first signature can
- * still count.
+ * Light on-chain check for one setup step. Avoids the full trading-state
+ * fetch so we can poll while a WalletConnect promise is outstanding.
  */
-async function recoverSeamlessStepAfterWalletError(args: {
+async function isSeamlessStepSatisfied(userAddress: Hex, step: SeamlessStepId): Promise<boolean> {
+  if (step === 'agent') {
+    const agentAddress = await getStoredAgentAddress();
+    if (!agentAddress) return false;
+    const extras = await listHlExtraAgents(userAddress);
+    return extras.some((a) => a.address.toLowerCase() === agentAddress.toLowerCase());
+  }
+  if (step === 'builderFee') {
+    return isBuilderFeeApproved(userAddress);
+  }
+  const mode = await getUserAbstractionMode(userAddress).catch(() => null);
+  return isPooledAccountMode(mode);
+}
+
+export type SeamlessSetupRunPhase = 'complete' | 'hl_confirm' | 'more_signatures';
+
+type SeamlessSignWait = { via: 'sign' } | { via: 'onchain'; signPending: boolean };
+
+/**
+ * WalletConnect often never settles `eth_signTypedData_v4` after the user
+ * leaves the wallet app — even when they signed and HL already applied it.
+ * Race the local promise against `isLanded`, and time out shortly after
+ * the app returns to the foreground so the UI cannot spin forever.
+ */
+function waitForWalletSignedAction(args: {
+  sign: () => Promise<unknown>;
+  isLanded: () => Promise<boolean>;
+  isCancelled?: () => boolean;
+  timeoutMs?: number;
+  postForegroundGraceMs?: number;
+}): Promise<SeamlessSignWait> {
+  const timeoutMs = args.timeoutMs ?? 90_000;
+  const postForegroundGraceMs = args.postForegroundGraceMs ?? 15_000;
+  const startedAt = Date.now();
+  const cancelled = () => args.isCancelled?.() === true;
+
+  return new Promise<SeamlessSignWait>((resolve, reject) => {
+    let settled = false;
+    let signPending = true;
+    let sawBackground = false;
+    let foregroundedAt: number | null = null;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    let appSub: { remove: () => void } | undefined;
+
+    const cleanup = () => {
+      if (intervalId != null) clearInterval(intervalId);
+      appSub?.remove();
+    };
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const signPromise = args.sign();
+    void signPromise.then(
+      () => {
+        signPending = false;
+        finish(() => resolve({ via: 'sign' }));
+      },
+      (err) => {
+        signPending = false;
+        if (settled) return;
+        if (cancelled() || isUserRejectedWalletError(err)) {
+          finish(() => reject(err));
+          return;
+        }
+        void args.isLanded()
+          .then((ok) => {
+            if (ok) finish(() => resolve({ via: 'onchain', signPending: false }));
+            else finish(() => reject(err));
+          })
+          .catch(() => finish(() => reject(err)));
+      },
+    );
+    void signPromise.catch(() => undefined);
+
+    const tryInspect = async () => {
+      if (settled) return;
+      if (cancelled()) {
+        finish(() => reject(new Error('__setup_cancelled__')));
+        return;
+      }
+      try {
+        if (await args.isLanded()) {
+          finish(() => resolve({ via: 'onchain', signPending }));
+          return;
+        }
+      } catch {
+        /* keep waiting */
+      }
+      const now = Date.now();
+      if (now - startedAt >= timeoutMs) {
+        finish(() => reject(new Error('__approve_timeout__')));
+        return;
+      }
+      if (foregroundedAt != null && now - foregroundedAt >= postForegroundGraceMs) {
+        finish(() => reject(new Error('__approve_timeout__')));
+      }
+    };
+
+    intervalId = setInterval(() => { void tryInspect(); }, 2_000);
+    appSub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') sawBackground = true;
+      if (state === 'active' && sawBackground) {
+        foregroundedAt = Date.now();
+        void tryInspect();
+      }
+    });
+  });
+}
+
+function waitForSeamlessSignature(args: {
+  sign: () => Promise<unknown>;
   userAddress: Hex;
   step: SeamlessStepId;
-  /** Minimum time to wait for HL indexing after a WC race. Default 10s. */
-  graceMs?: number;
-  isCancelled?: () => boolean;
-}): Promise<SeamlessSetupStatus | null> {
-  const graceMs = args.graceMs ?? 10_000;
-  const deadline = Date.now() + graceMs;
-  let last = await inspectSeamlessSetupStatus(args.userAddress).catch(() => null);
-  if (last && stepSatisfied(last, args.step)) return last;
-  while (Date.now() < deadline) {
-    if (args.isCancelled?.()) return last;
-    await new Promise((r) => setTimeout(r, 1_500));
-    last = await inspectSeamlessSetupStatus(args.userAddress).catch(() => last);
-    if (last && stepSatisfied(last, args.step)) return last;
-  }
-  return last && stepSatisfied(last, args.step) ? last : null;
+  isCancelled: () => boolean;
+  timeoutMs?: number;
+  postForegroundGraceMs?: number;
+}): Promise<SeamlessSignWait> {
+  return waitForWalletSignedAction({
+    sign: args.sign,
+    isLanded: () => isSeamlessStepSatisfied(args.userAddress, args.step),
+    isCancelled: args.isCancelled,
+    timeoutMs: args.timeoutMs,
+    postForegroundGraceMs: args.postForegroundGraceMs,
+  });
 }
 
 export async function runSeamlessSetupStepwise(args: {
@@ -2721,7 +2894,7 @@ export async function runSeamlessSetupStepwise(args: {
   isCancelled?: () => boolean;
   /** Total time to wait for HL to reflect the new state. Default 45s. */
   confirmTimeoutMs?: number;
-}): Promise<{ confirmed: boolean; status: SeamlessSetupStatus }> {
+}): Promise<{ confirmed: boolean; status: SeamlessSetupStatus; phase: SeamlessSetupRunPhase }> {
   const { userAddress } = args;
   const cancelled = () => args.isCancelled?.() === true;
 
@@ -2730,80 +2903,99 @@ export async function runSeamlessSetupStepwise(args: {
   const agent = await ensureAgentKey();
 
   let status = await inspectSeamlessSetupStatus(userAddress);
+  const stopForMoreSignatures = async (): Promise<{
+    confirmed: boolean;
+    status: SeamlessSetupStatus;
+    phase: SeamlessSetupRunPhase;
+  }> => {
+    const next = await inspectSeamlessSetupStatus(userAddress).catch(() => status);
+    status = next;
+    if (next.allComplete) {
+      await markTradingSetupComplete().catch(() => { /* ignore storage errors */ });
+      return { confirmed: true, status: next, phase: 'complete' };
+    }
+    return { confirmed: false, status: next, phase: 'more_signatures' };
+  };
   if (status.allComplete) {
     await markTradingSetupComplete().catch(() => { /* ignore storage errors */ });
-    return { confirmed: true, status };
+    return { confirmed: true, status, phase: 'complete' };
   }
-
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
 
   const runSignedStep = async (
     step: SeamlessStepId,
     sign: () => Promise<unknown>,
-  ): Promise<void> => {
-    if (cancelled()) return;
+  ): Promise<'continue' | 'yield'> => {
+    if (cancelled()) return 'yield';
     args.onStep?.(step, 'signing');
+    let wait: SeamlessSignWait;
     try {
-      await sign();
-      args.onStep?.(step, 'done');
-    } catch (err) {
-      if (isUserRejectedWalletError(err) || cancelled()) throw err;
-      // WC/AppKit race on return-from-wallet: signature may already be on HL.
-      const recovered = await recoverSeamlessStepAfterWalletError({
+      wait = await waitForSeamlessSignature({
+        sign,
         userAddress,
         step,
         isCancelled: cancelled,
       });
-      if (recovered && stepSatisfied(recovered, step)) {
-        status = recovered;
+    } catch (err) {
+      if (isUserRejectedWalletError(err) || cancelled()) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === '__setup_cancelled__') throw err;
+      // Last look: the action may have landed while the wallet hung.
+      if (await isSeamlessStepSatisfied(userAddress, step).catch(() => false)) {
         args.onStep?.(step, 'done');
-        return;
+        return 'yield';
       }
       throw err;
     }
-    // Let the WalletConnect session settle before the next deep-link prompt.
+    args.onStep?.(step, 'done');
+    if (wait.via === 'onchain' && wait.signPending) {
+      // WC request is still open — do not stack the next session_request.
+      await new Promise((r) => setTimeout(r, 1_500));
+      return 'yield';
+    }
     await new Promise((r) => setTimeout(r, 1_200));
+    return 'continue';
   };
 
   // 1) Authorize the agent (API wallet) for one-tap order placement.
   if (!status.agent) {
-    if (cancelled()) return { confirmed: false, status };
-    await runSignedStep('agent', () =>
-      exchange.approveAgent({ agentAddress: agent.agentAddress, agentName: 'HyperTrade' }),
+    if (cancelled()) return stopForMoreSignatures();
+    const next = await runSignedStep('agent', () =>
+      withUserSignedExchange(args.userWalletProvider, userAddress, (exchange) =>
+        exchange.approveAgent({ agentAddress: agent.agentAddress, agentName: 'HyperTrade' }),
+      ),
     );
+    if (next === 'yield') return stopForMoreSignatures();
   }
 
   // 2) Approve the builder-fee cap for the active builder address.
   // Re-inspect so a recovered agent step doesn't still look "pending".
   status = await inspectSeamlessSetupStatus(userAddress).catch(() => status);
   if (!status.builderFee) {
-    if (cancelled()) return { confirmed: false, status };
-    await runSignedStep('builderFee', () =>
-      exchange.approveBuilderFee({
-        builder: getBuilderAddress() as Hex,
-        maxFeeRate: HL_BUILDER_MAX_FEE_RATE,
-      }),
+    if (cancelled()) return stopForMoreSignatures();
+    const next = await runSignedStep('builderFee', () =>
+      withUserSignedExchange(args.userWalletProvider, userAddress, (exchange) =>
+        exchange.approveBuilderFee({
+          builder: getBuilderAddress() as Hex,
+          maxFeeRate: HL_BUILDER_MAX_FEE_RATE,
+        }),
+      ),
     );
+    if (next === 'yield') return stopForMoreSignatures();
   }
 
   // 3) Move into HL's unified (pooled) account mode.
   status = await inspectSeamlessSetupStatus(userAddress).catch(() => status);
   if (!status.accountMode) {
-    if (cancelled()) return { confirmed: false, status };
-    await runSignedStep('accountMode', () =>
-      (exchange as any).userSetAbstraction({
-        user: userAddress,
-        abstraction: 'unifiedAccount',
-      }),
+    if (cancelled()) return stopForMoreSignatures();
+    const next = await runSignedStep('accountMode', () =>
+      withUserSignedExchange(args.userWalletProvider, userAddress, (exchange) =>
+        (exchange as any).userSetAbstraction({
+          user: userAddress,
+          abstraction: 'unifiedAccount',
+        }),
+      ),
     );
+    if (next === 'yield') return stopForMoreSignatures();
   }
 
   // Confirm the new state is observable on HL before declaring success — mirrors
@@ -2817,8 +3009,9 @@ export async function runSeamlessSetupStepwise(args: {
   }
   if (finalStatus.allComplete) {
     await markTradingSetupComplete().catch(() => { /* ignore storage errors */ });
+    return { confirmed: true, status: finalStatus, phase: 'complete' };
   }
-  return { confirmed: finalStatus.allComplete, status: finalStatus };
+  return { confirmed: false, status: finalStatus, phase: 'hl_confirm' };
 }
 
 /**
@@ -2836,19 +3029,12 @@ export async function approveNamedAgent(args: {
   agentAddress: Hex;
   agentName: string;
 }): Promise<void> {
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
-  await exchange.approveAgent({
-    agentAddress: args.agentAddress,
-    agentName: args.agentName,
-  });
+  await withUserSignedExchange(args.userWalletProvider, args.userAddress, (exchange) =>
+    exchange.approveAgent({
+      agentAddress: args.agentAddress,
+      agentName: args.agentName,
+    }),
+  );
 }
 
 /**
@@ -2906,19 +3092,12 @@ export async function revokeNamedAgent(args: {
   userAddress: Hex;
   agentName: string;
 }): Promise<void> {
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
-  await exchange.approveAgent({
-    agentAddress: '0x0000000000000000000000000000000000000000',
-    agentName: args.agentName,
-  });
+  await withUserSignedExchange(args.userWalletProvider, args.userAddress, (exchange) =>
+    exchange.approveAgent({
+      agentAddress: '0x0000000000000000000000000000000000000000',
+      agentName: args.agentName,
+    }),
+  );
 }
 
 export type HlExtraAgent = {
@@ -2980,15 +3159,7 @@ export async function createHlSubAccount(args: {
   /** 1-16 chars, unique per master. */
   name: string;
 }): Promise<Hex> {
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
   await (exchange as any).createSubAccount({ name: args.name });
 
   // HL reflects new sub-accounts in /info immediately after the L1 action acks.
@@ -3029,15 +3200,7 @@ export async function ensureSubAccountUnified(args: {
   }
   if (mode === 'unifiedAccount' || mode === 'portfolioMargin') return;
 
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
   await (exchange as any).userSetAbstraction({
     user: args.subAccountAddress,
     abstraction: 'unifiedAccount',
@@ -3069,15 +3232,7 @@ export async function transferUsdToSubAccount(args: {
   const amount = args.usd.toFixed(6).replace(/\.?0+$/, '');
   if (!(Number(amount) > 0)) throw new Error('Transfer amount must be positive');
 
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
 
   if (args.isDeposit) {
     await (exchange as any).sendAsset({
@@ -3122,15 +3277,7 @@ export async function switchAccountAbstractionToUnified(args: {
   userWalletProvider: Eip1193Provider;
   userAddress: Hex;
 }): Promise<void> {
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
   await (exchange as any).userSetAbstraction({
     user: args.userAddress,
     abstraction: 'unifiedAccount',
@@ -3199,15 +3346,7 @@ export async function ensureHip3DexFunded(args: {
 
   const tokenSpec = await getUsdcTokenSpec();
 
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
 
   await (exchange as any).sendAsset({
     destination: args.userAddress, // same user; HL uses this to identify the target wallet
@@ -3257,26 +3396,54 @@ export async function transferPerpDexUsdc(args: {
   if (args.sourceDex === args.destinationDex) return;
 
   const tokenSpec = await getUsdcTokenSpec();
-  const wallet = createViemJsonRpcAccount({
-    provider: args.userWalletProvider,
-    address: args.userAddress,
-  });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
 
   const sub = args.fromSubAccount;
-  await (exchange as any).sendAsset({
-    // Self-transfer on the book that owns the balances.
-    destination: sub ?? args.userAddress,
-    sourceDex: args.sourceDex,
-    destinationDex: args.destinationDex,
-    token: tokenSpec,
-    amount: args.amountUsd.toFixed(6).replace(/\.?0+$/, ''),
-    fromSubAccount: sub ?? '',
-  });
+  const destUser = sub ?? args.userAddress;
+  const destDex = args.destinationDex;
+  const before = destDex === 'spot'
+    ? null
+    : await readPerpDexAccountValueUsd(destUser, destDex).catch(() => null);
+
+  const send = () =>
+    (exchange as any).sendAsset({
+      // Self-transfer on the book that owns the balances.
+      destination: destUser,
+      sourceDex: args.sourceDex,
+      destinationDex: args.destinationDex,
+      token: tokenSpec,
+      amount: args.amountUsd.toFixed(6).replace(/\.?0+$/, ''),
+      fromSubAccount: sub ?? '',
+    });
+
+  const isLanded = async () => {
+    if (before == null || destDex === 'spot') return false;
+    const now = await readPerpDexAccountValueUsd(destUser, destDex);
+    return now + 0.02 >= before + args.amountUsd * 0.95;
+  };
+
+  try {
+    await waitForWalletSignedAction({ sign: send, isLanded });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === '__approve_timeout__' && (await isLanded().catch(() => false))) {
+      return;
+    }
+    if (msg === '__approve_timeout__') {
+      throw new Error(
+        'Wallet did not return the funding signature. If you already signed, wait a moment and try the order again.',
+      );
+    }
+    throw err;
+  }
+}
+
+async function readPerpDexAccountValueUsd(user: Hex, dex: string): Promise<number> {
+  const info = getHlInfoClient();
+  const st = dex
+    ? await info.clearinghouseState({ user, dex })
+    : await info.clearinghouseState({ user });
+  return safeNum((st as any)?.marginSummary?.accountValue);
 }
 
 export async function ensurePerpDexFunded(args: {
@@ -3459,22 +3626,20 @@ export async function withdrawFromHyperliquid(args: {
         const freshNonce = getUniqueNonce();
         console.log(`[Withdraw] Attempt ${attempt}/${MAX_RETRIES}, nonce: ${freshNonce}`);
         
-        const wallet = createViemJsonRpcAccount({ provider: args.userWalletProvider, address: args.userAddress });
-        // Withdraw uses a different EIP-712 domain chainId (Arbitrum) per HL Bridge2 docs.
-        const exchange = new ExchangeClient({
-          transport: getHlTransport(),
-          wallet,
-          signatureChainId: getHlWithdrawSignatureChainId(),
-        });
-
         // The SDK generates its own nonce, but we've updated _lastUsedNonce to ensure
         // any subsequent calls will use a higher nonce. Adding a small delay helps
         // ensure the SDK's Date.now() call gets a fresh timestamp.
         if (attempt > 1) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
-        
-        await exchange.withdraw3({ destination: args.destination, amount: args.amountUsd });
+
+        // Same user-signed path as approveAgent: WalletConnect/MetaMask will
+        // reject the typed-data if signatureChainId ≠ the wallet's selected
+        // network. Callers should have already switched to Arbitrum; this
+        // wrapper is the one-shot mismatch backstop.
+        await withUserSignedExchange(args.userWalletProvider, args.userAddress, (exchange) =>
+          exchange.withdraw3({ destination: args.destination, amount: args.amountUsd }),
+        );
         console.log(`[Withdraw] Success on attempt ${attempt}`);
         return; // Success!
         
@@ -4376,12 +4541,7 @@ export async function transferUsdBetweenSpotAndPerp(args: {
   if (!Number.isFinite(amt) || amt <= 0) {
     throw new Error('Invalid transfer amount');
   }
-  const wallet = createViemJsonRpcAccount({ provider: args.userWalletProvider, address: args.userAddress });
-  const exchange = new ExchangeClient({
-    transport: getHlTransport(),
-    wallet,
-    signatureChainId: getHlExchangeSignatureChainId(),
-  });
+  const exchange = await createUserExchangeClient(args.userWalletProvider, args.userAddress);
   await (exchange as any).usdClassTransfer({ amount: args.amountUsd, toPerp: args.toPerp });
 }
 

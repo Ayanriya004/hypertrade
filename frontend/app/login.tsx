@@ -24,6 +24,7 @@ import * as Haptics from 'expo-haptics';
 import { colors } from '../src/theme/colors';
 import { useAuth } from '../src/providers/AuthContext';
 import { isOAuthCancelledError } from '../src/lib/oauthRecovery';
+import { forceCloseWalletConnectModal } from '../src/lib/externalWalletConnect';
 import { SocialLoginMoreSheet, type SocialLoginMoreOption } from '../src/components/SocialLoginMoreSheet';
 import { useTranslation } from 'react-i18next';
 import type { OAuthProviderName } from '../src/providers/AuthContext';
@@ -198,7 +199,14 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (isReady && isAuthenticated) {
-      router.replace('/');
+      forceCloseWalletConnectModal();
+      // Login is a stack modal. `replace('/')` can leave that presentation
+      // layer on top of Home (looks like Home, eats every tap). Dismiss it.
+      if (router.canDismiss()) {
+        router.dismissAll();
+      } else {
+        router.replace('/');
+      }
     }
   }, [isAuthenticated, isReady, router]);
 

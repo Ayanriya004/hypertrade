@@ -35,6 +35,7 @@ import {
   getHyperliquidTradingState,
   isPooledAccountMode,
 } from '../lib/hyperliquid';
+import { ensureExternalWalletOnHlSigningChain } from '../lib/externalWalletConnect';
 import {
   useHyperliquidAccountStream,
   type HyperliquidAccountStream,
@@ -1080,6 +1081,10 @@ export function DepositPanel(props: {
     }
     try {
       const provider = await connectedWallet.getProvider();
+      // External wallets: park MetaMask on Arbitrum before withdraw3 so the
+      // EIP-712 prompt isn't rejected (same treatment as seamless setup).
+      // No-op for embedded Privy wallets (no WalletConnect session).
+      await ensureExternalWalletOnHlSigningChain();
       await withdrawFromHyperliquid({
         userWalletProvider: provider,
         userAddress: connectedAddress as Hex,

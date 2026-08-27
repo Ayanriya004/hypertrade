@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "Sem resposta da carteira",
     "approveTimeout": "O pedido de assinatura pode ainda estar aguardando no seu app de carteira. Abra-o, assine se o pedido estiver lá e depois toque no botão novamente — as aprovações já assinadas são detectadas automaticamente.",
     "approvePendingRetry": "Uma solicitação de assinatura anterior ainda está aberta no seu app de carteira. Abra o app da carteira, rejeite ou conclua essa solicitação e depois toque em Ativar novamente.",
+    "approveChainSwitchTitle": "Fique na Arbitrum",
+    "approveChainSwitch": "Mantenha a carteira na Arbitrum One e tente de novo. Se nada aparecer, desconecte e reconecte.",
     "walletNotReady": "Carteira não está pronta",
     "empty": "Ainda sem agentes. Crie um para deixar a IA operar um ativo por você — você mantém o controle total.",
     "emptyHeroKicker": "Com modelos líderes de mercado",
@@ -876,7 +878,9 @@
       "resume": "Continuar na carteira",
       "rejected": "Assinatura recusada. Você pode retomar a qualquer momento.",
       "sessionExpired": "A sessão da carteira expirou. Reconecte sua carteira e tente novamente.",
+      "chainSwitch": "Mantenha a carteira na Arbitrum One e tente de novo. Se nada aparecer, desconecte e reconecte.",
       "failed": "Não foi possível concluir a configuração. Tente novamente.",
+      "timeout": "A carteira não devolveu a assinatura. Se já assinou, toque em continuar. Se um pedido ficou travado, feche-o e tente de novo.",
       "confirming": "Confirmando...",
       "ownerMismatch": "A carteira conectada não corresponde à sua conta. Reconecte a carteira com a qual você iniciou sessão e tente novamente.",
       "step": {

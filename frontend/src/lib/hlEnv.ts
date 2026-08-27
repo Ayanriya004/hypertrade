@@ -8,10 +8,15 @@
  * provider) can branch without React lifecycle.
  *
  * Demo mode points the entire HL stack at testnet — same SDK, same signing
- * shape, just different endpoints. The signing chainId on testnet is the same
- * `0x66eee` value as mainnet because HL's signing domain chainId is fixed
- * across networks (per HL docs); the SDK's `isTestnet` flag is what selects
- * the actual API URL.
+ * shape, just different endpoints.
+ *
+ * User-signed actions (approveAgent, builder fee, usdClassTransfer, …) use
+ * `signatureChainId` = the wallet's *active* chain. Hyperliquid accepts any
+ * value as long as it matches the EIP-712 domain; `hyperliquidChain` binds
+ * Mainnet vs Testnet. Official HL UI sends Arbitrum One `0xa4b1`. Hardcoding
+ * `0x66eee` (Sepolia) makes MetaMask / WalletConnect reject while the user
+ * is correctly on Arbitrum. L1 order signing still uses phantom chain 1337
+ * via the local agent key — never the browser wallet.
  */
 
 import { getTradingEnvSync, subscribeTradingEnv, type TradingEnv } from '../store/appStore';
@@ -21,12 +26,11 @@ const HL_TESTNET_API_URL = 'https://api.hyperliquid-testnet.xyz';
 const HL_MAINNET_WS_URL = 'wss://api.hyperliquid.xyz/ws';
 const HL_TESTNET_WS_URL = 'wss://api.hyperliquid-testnet.xyz/ws';
 
-// HL signing domain chainId — fixed across mainnet and testnet for exchange
-// actions. Bridge2 withdrawals sign against the L1 chainId (Arbitrum mainnet
-// 0xa4b1, or Arbitrum Sepolia 0x66eee for testnet bridges).
-const HL_EXCHANGE_SIGNATURE_CHAIN_ID = '0x66eee' as const;
-const HL_WITHDRAW_SIGNATURE_CHAIN_ID_MAINNET = '0xa4b1' as const; // Arbitrum One
-const HL_WITHDRAW_SIGNATURE_CHAIN_ID_TESTNET = '0x66eee' as const; // Arbitrum Sepolia
+// Fallback EIP-712 domain chainId for user-signed HL actions when the wallet
+// cannot report `eth_chainId`. Live: Arbitrum One. Demo: Arbitrum Sepolia
+// (typical testnet wallet). Prefer reading the wallet's active chain instead.
+const HL_USER_SIGNED_CHAIN_ID_MAINNET = '0xa4b1' as const;
+const HL_USER_SIGNED_CHAIN_ID_TESTNET = '0x66eee' as const;
 
 export function getTradingEnv(): TradingEnv {
   return getTradingEnvSync();
@@ -52,16 +56,14 @@ export function getHlWsUrl(): string {
   return isDemoEnv() ? HL_TESTNET_WS_URL : HL_MAINNET_WS_URL;
 }
 
-/** EIP-712 domain chainId for HL exchange actions (order, cancel, agent, usdSend, etc.). */
+/** Fallback EIP-712 chainId for user-signed HL actions (wallet chain unknown). */
 export function getHlExchangeSignatureChainId(): `0x${string}` {
-  return HL_EXCHANGE_SIGNATURE_CHAIN_ID;
+  return isDemoEnv() ? HL_USER_SIGNED_CHAIN_ID_TESTNET : HL_USER_SIGNED_CHAIN_ID_MAINNET;
 }
 
-/** EIP-712 domain chainId for HL Bridge2 withdraw actions. */
+/** Same fallback as other user-signed actions (withdraw3 included). */
 export function getHlWithdrawSignatureChainId(): `0x${string}` {
-  return isDemoEnv()
-    ? HL_WITHDRAW_SIGNATURE_CHAIN_ID_TESTNET
-    : HL_WITHDRAW_SIGNATURE_CHAIN_ID_MAINNET;
+  return getHlExchangeSignatureChainId();
 }
 
 /** True iff the SDK transport should be constructed with `isTestnet: true`. */

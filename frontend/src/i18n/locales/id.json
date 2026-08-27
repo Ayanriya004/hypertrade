@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "Tidak ada respons dari dompet",
     "approveTimeout": "Permintaan tanda tangan mungkin masih menunggu di aplikasi dompet Anda. Buka, tanda tangani jika permintaan ada di sana, lalu ketuk tombol lagi — persetujuan yang sudah ditandatangani terdeteksi otomatis.",
     "approvePendingRetry": "Permintaan tanda tangan sebelumnya masih terbuka di aplikasi dompet Anda. Buka aplikasi dompet, tolak atau selesaikan permintaan tersebut, lalu ketuk Aktifkan lagi.",
+    "approveChainSwitchTitle": "Tetap di Arbitrum",
+    "approveChainSwitch": "Biarkan dompet di Arbitrum One, lalu coba lagi. Jika tidak muncul apa pun, putuskan dan sambungkan kembali.",
     "empty": "Belum ada agen. Buat satu agar AI memperdagangkan aset untuk Anda — Anda tetap memegang kendali penuh.",
     "emptyHeroKicker": "Didukung model terdepan",
     "liveDemoBadge": "Demo langsung",
@@ -876,7 +878,9 @@
       "resume": "Lanjutkan di dompet",
       "rejected": "Tanda tangan ditolak. Anda dapat melanjutkan kapan saja.",
       "sessionExpired": "Sesi dompet berakhir. Sambungkan kembali dompet Anda dan coba lagi.",
+      "chainSwitch": "Biarkan dompet di Arbitrum One, lalu coba lagi. Jika tidak muncul apa pun, putuskan dan sambungkan kembali.",
       "failed": "Penyiapan tidak dapat diselesaikan. Silakan coba lagi.",
+      "timeout": "Dompet tidak mengembalikan tanda tangan. Jika sudah menandatangani, ketuk lanjut. Jika permintaan macet, tutup lalu coba lagi.",
       "confirming": "Mengonfirmasi…",
       "ownerMismatch": "Dompet yang terhubung tidak cocok dengan akun Anda. Sambungkan kembali dompet yang Anda gunakan untuk masuk, lalu coba lagi.",
       "step": {

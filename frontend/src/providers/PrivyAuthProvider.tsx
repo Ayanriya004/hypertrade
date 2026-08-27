@@ -44,6 +44,7 @@ import { recoverMessageAddress, stringToHex } from 'viem';
 import {
   connectExternalWallet,
   disconnectExternalWallet,
+  forceCloseWalletConnectModal,
   getExternalWalletSignerAddress,
 } from '../lib/externalWalletConnect';
 import {
@@ -793,6 +794,10 @@ export function PrivyAuthProvider({ children }: { children: ReactNode }) {
         }
         throw error;
       } finally {
+        // Always drop the AppKit overlay after SIWE (success or fail). A hung
+        // native modal after returning from MetaMask freezes Home.
+        forceCloseWalletConnectModal();
+        setTimeout(forceCloseWalletConnectModal, 400);
         if (generation === walletLoginGenerationRef.current) {
           setIsLoading(false);
           setIsPendingWalletLogin(false);

@@ -1,7 +1,8 @@
 import React, { useEffect, type ReactNode } from 'react';
 import { Platform, View, StyleSheet } from 'react-native';
+import { useSnapshot } from 'valtio';
 import { AppKit } from '@reown/appkit-react-native';
-import { ModalController } from '@reown/appkit-core-react-native';
+import { ConnectionsController, ModalController } from '@reown/appkit-core-react-native';
 import { FullWindowOverlay } from 'react-native-screens';
 import {
   registerWalletConnectOpener,
@@ -23,7 +24,11 @@ function AppKitModalContentWrapper({ children }: { children: ReactNode }) {
     );
   }
 
-  return <View style={styles.androidOverlay}>{children}</View>;
+  return (
+    <View style={styles.androidOverlay} pointerEvents="box-none">
+      {children}
+    </View>
+  );
 }
 
 /** Bridges imperative wallet-open calls to AppKit after the modal layer has mounted. */
@@ -38,16 +43,28 @@ function WalletConnectOpener() {
 
 /**
  * Renders the Reown AppKit modal layer (WalletConnect wallet picker).
+ *
+ * Keep the AppKit UI mounted while a WC session is connected so
+ * `eth_signTypedData_v4` replies still land after returning from MetaMask.
+ * When the picker is closed, disable pointer events so a leftover overlay
+ * cannot freeze Home.
  */
-export function AppKitHost() {
-  if (Platform.OS === 'web') return null;
+function AppKitHostNative() {
+  const { open } = useSnapshot(ModalController.state);
+  const { isConnected } = useSnapshot(ConnectionsController.state);
+  const mountKit = open || isConnected;
 
   return (
-    <View style={styles.host} pointerEvents="box-none">
-      <AppKit modalContentWrapper={AppKitModalContentWrapper} />
+    <View style={styles.host} pointerEvents={open ? 'box-none' : 'none'}>
+      {mountKit ? <AppKit modalContentWrapper={AppKitModalContentWrapper} /> : null}
       <WalletConnectOpener />
     </View>
   );
+}
+
+export function AppKitHost() {
+  if (Platform.OS === 'web') return null;
+  return <AppKitHostNative />;
 }
 
 const styles = StyleSheet.create({

@@ -28,6 +28,8 @@ import {
   type Eip1193Provider,
   type SeamlessStepId,
 } from '../lib/hyperliquid';
+import { isHlSigningChainError, isWalletUserRejectedRequest } from '../lib/hlWalletChain';
+import { ensureExternalWalletOnHlSigningChain } from '../lib/externalWalletConnect';
 
 type StepUiState = 'pending' | 'signing' | 'done';
 
@@ -101,12 +103,15 @@ export function ExternalWalletSetupModal({
   }, [awaitingConfirm]);
 
   const applyStatusToUi = useCallback((status: Awaited<ReturnType<typeof inspectSeamlessSetupStatus>>) => {
-    setStepStates({
-      agent: status.agent ? 'done' : 'pending',
-      builderFee: status.builderFee ? 'done' : 'pending',
-      accountMode: status.accountMode ? 'done' : 'pending',
-    });
-    setShowAccountModeStep(!status.accountMode);
+    // Monotonic while the sheet is open: these approvals are one-way during
+    // setup, but a rate-limited/failed HL inspection reports `false` — never
+    // take a green tick (or an in-flight spinner) back on such a blip.
+    setStepStates((prev) => ({
+      agent: status.agent ? 'done' : prev.agent,
+      builderFee: status.builderFee ? 'done' : prev.builderFee,
+      accountMode: status.accountMode ? 'done' : prev.accountMode,
+    }));
+    setShowAccountModeStep((prev) => prev || !status.accountMode);
   }, []);
 
   /**
@@ -217,12 +222,7 @@ export function ExternalWalletSetupModal({
       try {
         const status = await inspectSeamlessSetupStatus(tradingAddress);
         if (stopped) return;
-        setStepStates({
-          agent: status.agent ? 'done' : 'pending',
-          builderFee: status.builderFee ? 'done' : 'pending',
-          accountMode: status.accountMode ? 'done' : 'pending',
-        });
-        setShowAccountModeStep((prev) => prev && !status.accountMode);
+        applyStatusToUi(status);
         if (status.allComplete) {
           stopped = true;
           setAwaitingConfirm(false);
@@ -248,7 +248,7 @@ export function ExternalWalletSetupModal({
       clearInterval(interval);
       sub.remove();
     };
-  }, [visible, awaitingConfirm, tradingAddress]);
+  }, [visible, awaitingConfirm, tradingAddress, applyStatusToUi]);
 
   const handleRun = useCallback(async () => {
     if (runningRef.current) return;
@@ -267,6 +267,10 @@ export function ExternalWalletSetupModal({
     let keepParentPinned = false;
     try {
       const provider = await getProvider();
+      // Move the wallet onto Arbitrum BEFORE the first EIP-712 prompt — the
+      // only deterministic cure for MetaMask's "active chainId is X but
+      // received Y" rejection over WalletConnect. One switch per run.
+      if (!cancelledRef.current) await ensureExternalWalletOnHlSigningChain();
       const result = await runSeamlessSetupStepwise({
         userWalletProvider: provider,
         userAddress: tradingAddress,
@@ -287,24 +291,54 @@ export function ExternalWalletSetupModal({
           }
         },
       });
-      if (result.confirmed) {
+      if (result.confirmed || result.phase === 'complete') {
         if (Platform.OS !== 'web') {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
         onCompleteRef.current();
-      } else if (!cancelledRef.current) {
+      } else if (!cancelledRef.current && result.phase === 'hl_confirm') {
         // Signed but HL hasn't reflected all state yet — reflect what we know
         // and hand off to the auto-confirm poller (no user tap needed).
         applyStatusToUi(result.status);
         setAwaitingConfirm(true);
         keepParentPinned = true;
+      } else if (!cancelledRef.current) {
+        // One step landed (or WalletConnect hung after the user signed). Unlock
+        // so Continue can request the next signature instead of spinning.
+        applyStatusToUi(result.status);
+        keepParentPinned = true;
       }
     } catch (e: unknown) {
       if (!cancelledRef.current) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (/reject|denied|cancel/i.test(msg)) {
+        if (isWalletUserRejectedRequest(e) || /reject|denied|cancel/i.test(msg)) {
           setError(
             t('trading.externalSetup.rejected', 'Signature declined. You can resume anytime.'),
+          );
+        } else if (msg === '__setup_cancelled__') {
+          // User closed the sheet.
+        } else if (msg === '__approve_timeout__') {
+          const status = await inspectSeamlessSetupStatus(tradingAddress).catch(() => null);
+          if (status) applyStatusToUi(status);
+          if (status?.allComplete) {
+            await markTradingSetupComplete().catch(() => { /* ignore */ });
+            onCompleteRef.current();
+          } else if (status?.agent || status?.builderFee) {
+            keepParentPinned = true;
+          } else {
+            setError(
+              t(
+                'trading.externalSetup.timeout',
+                "Your wallet didn't return the signature. If you already signed, tap continue. If a request is still loading in the wallet, dismiss it, then try again.",
+              ),
+            );
+          }
+        } else if (isHlSigningChainError(e)) {
+          setError(
+            t(
+              'trading.externalSetup.chainSwitch',
+              'Your wallet is on a different network than this request. Dismiss the failed prompt, then tap continue.',
+            ),
           );
         } else {
           // WC often errors on return-from-wallet even when HL already applied
@@ -429,11 +463,11 @@ export function ExternalWalletSetupModal({
             <Text style={styles.title}>
               {t('trading.externalSetup.title', 'Activate trading')}
             </Text>
-            <TouchableOpacity onPress={handleClose} disabled={running} hitSlop={10}>
+            <TouchableOpacity onPress={handleClose} hitSlop={10}>
               <Ionicons
                 name="close"
                 size={22}
-                color={running ? colors.text.muted : colors.text.primary}
+                color={colors.text.primary}
               />
             </TouchableOpacity>
           </View>

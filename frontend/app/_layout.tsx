@@ -230,6 +230,9 @@ function AppContent() {
           options={{
             animation: modalAnimation,
             presentation: 'modal',
+            // Keep login alive through MetaMask backgrounding so SIWE completion
+            // can dismiss this modal. freezeOnBlur here left a ghost overlay on Home.
+            freezeOnBlur: false,
           }}
         />
         <Stack.Screen 

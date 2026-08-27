@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "钱包无响应",
     "approveTimeout": "签名请求可能仍在您的钱包应用中等待。请打开钱包，如有请求请签名，然后再次点击按钮 — 已签名的批准会被自动检测。",
     "approvePendingRetry": "前一个签名请求仍在您的钱包应用中打开。打开钱包应用，拒绝或完成该请求，然后再次点击激活。",
+    "approveChainSwitchTitle": "请留在 Arbitrum",
+    "approveChainSwitch": "请将钱包保持在 Arbitrum One 后重试。若无弹窗，请断开并重新连接。",
     "empty": "尚无代理。创建一个让 AI 为您交易 — 您始终掌握完全控制权。",
     "emptyHeroKicker": "由领先模型驱动",
     "liveDemoBadge": "实时演示",
@@ -876,7 +878,9 @@
       "resume": "在钱包中继续",
       "rejected": "签名被拒绝。可随时恢复。",
       "sessionExpired": "钱包会话已过期。请重新连接钱包后重试。",
+      "chainSwitch": "请将钱包保持在 Arbitrum One 后重试。若无弹窗，请断开并重新连接。",
       "failed": "设置无法完成。请重试。",
+      "timeout": "钱包未返回签名。若已签名，请点继续。若请求卡住，请关掉后再试。",
       "confirming": "确认中…",
       "ownerMismatch": "连接的钱包与您的账户不匹配。请重新连接登录时使用的钱包后重试。",
       "step": {

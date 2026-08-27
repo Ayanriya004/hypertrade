@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "Cüzdandan yanıt yok",
     "approveTimeout": "İmza isteği hâlâ cüzdan uygulamanızda bekliyor olabilir. Açın, istek oradaysa imzalayın, sonra düğmeye tekrar dokunun — zaten imzalanmış onaylar otomatik algılanır.",
     "approvePendingRetry": "Önceki imza isteği hâlâ cüzdan uygulamanızda açık. Cüzdan uygulamasını açın, isteği reddedin veya tamamlayın, sonra düğmeye tekrar dokunun.",
+    "approveChainSwitchTitle": "Arbitrum'da kalın",
+    "approveChainSwitch": "Cüzdanı Arbitrum One'da tutup tekrar deneyin. Bir şey görünmezse bağlantıyı kesip yeniden bağlayın.",
     "empty": "Henüz ajan yok. AI'nin sizin için bir varlıkta işlem yapmasına izin vermek için bir tane oluşturun — kontrol tamamen sizde.",
     "emptyHeroKicker": "Öncü modellerle desteklenir",
     "liveDemoBadge": "Canlı demo",
@@ -878,7 +880,9 @@
       "resume": "Cüzdanda devam et",
       "rejected": "İmza reddedildi. İstediğiniz zaman devam edebilirsiniz.",
       "sessionExpired": "Cüzdan oturumu sona erdi. Cüzdanınızı yeniden bağlayıp tekrar deneyin.",
+      "chainSwitch": "Cüzdanı Arbitrum One'da tutup tekrar deneyin. Bir şey görünmezse bağlantıyı kesip yeniden bağlayın.",
       "failed": "Kurulum tamamlanamadı. Lütfen tekrar deneyin.",
+      "timeout": "Cüzdan imzayı döndürmedi. Zaten imzaladıysanız devam edin. Takılı bir istek varsa kapatıp tekrar deneyin.",
       "confirming": "Onaylanıyor…",
       "ownerMismatch": "Bağlı cüzdan hesabınızla eşleşmiyor. Giriş yaptığınız cüzdanı yeniden bağlayıp tekrar deneyin.",
       "step": {

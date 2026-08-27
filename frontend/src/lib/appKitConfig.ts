@@ -56,7 +56,9 @@ export const appKit: AppKitClient = createAppKit({
     url: 'https://hypertrade.exchange',
     icons: ['https://www.hypertrade.exchange/favicon.ico'],
     redirect: {
-      native: 'hypertrade://',
+      // Distinct from `/` so Expo Router does not treat the wallet bounce-back
+      // as Home. `app/+native-intent.tsx` ignores this path while the app is open.
+      native: 'hypertrade://wc',
     },
   },
   // Wallet-only connect UI — email/social login stays on Privy.

@@ -10,6 +10,7 @@ import { getAddress } from 'viem';
 import {
   ConnectionsController,
   EventsController,
+  ModalController,
 } from '@reown/appkit-core-react-native';
 import type { Eip1193Provider } from './hyperliquid';
 import { getAppKit } from './appKitConfig';
@@ -56,13 +57,27 @@ let connectInFlight: Promise<ConnectResult> | null = null;
 let connectGeneration = 0;
 let abortWaitForConnect: ((reason: Error) => void) | null = null;
 
+/**
+ * Tear down the AppKit picker even if its close animation was interrupted
+ * (common after a MetaMask/WalletConnect round-trip). A leftover native
+ * modal still captures every tap on Home.
+ */
+export function forceCloseWalletConnectModal(): void {
+  try {
+    ModalController.close();
+  } catch {
+    // Controller may not be ready yet.
+  }
+  void getAppKit().close().catch(() => { /* ignore */ });
+}
+
 /** Cancel an in-flight wallet picker / WC session (e.g. superseded login attempt). */
 export function cancelPendingWalletConnect(reason = 'Wallet connect cancelled'): void {
   connectGeneration += 1;
   connectInFlight = null;
   abortWaitForConnect?.(new Error(reason));
   abortWaitForConnect = null;
-  void getAppKit().close().catch(() => { /* ignore */ });
+  forceCloseWalletConnectModal();
 }
 
 type WalletConnectOpener = () => Promise<void>;
@@ -127,7 +142,6 @@ function readConnectedSession(): ConnectResult | null {
 }
 
 function waitForWalletConnect(): Promise<ConnectResult> {
-  const appKit = getAppKit();
   const generation = connectGeneration;
 
   return new Promise((resolve, reject) => {
@@ -172,7 +186,7 @@ function waitForWalletConnect(): Promise<ConnectResult> {
       settled = true;
       cleanup(unsubConnect, unsubClose, unsubReject, unsubError, timer);
       abortWaitForConnect = null;
-      void appKit.close().catch(() => { /* ignore */ });
+      forceCloseWalletConnectModal();
       resolve(session);
     };
 
@@ -186,7 +200,7 @@ function waitForWalletConnect(): Promise<ConnectResult> {
       settled = true;
       cleanup(unsubConnect, unsubClose, unsubReject, unsubError, timer);
       abortWaitForConnect = null;
-      void appKit.close().catch(() => { /* ignore */ });
+      forceCloseWalletConnectModal();
       const message =
         event.data.event === 'USER_REJECTED'
           ? event.data.properties?.message
@@ -219,7 +233,7 @@ function waitForWalletConnect(): Promise<ConnectResult> {
       settled = true;
       cleanup(unsubConnect, unsubClose, unsubReject, unsubError, timer);
       abortWaitForConnect = null;
-      void appKit.close().catch(() => { /* ignore */ });
+      forceCloseWalletConnectModal();
       const message =
         event.data.event === 'CONNECT_ERROR'
           ? event.data.properties?.message
@@ -232,7 +246,7 @@ function waitForWalletConnect(): Promise<ConnectResult> {
       settled = true;
       cleanup(unsubConnect, unsubClose, unsubReject, unsubError, timer);
       abortWaitForConnect = null;
-      void appKit.close().catch(() => { /* ignore */ });
+      forceCloseWalletConnectModal();
       reject(new Error('Wallet connection timed out'));
     }, CONNECT_TIMEOUT_MS);
 
@@ -327,6 +341,51 @@ export async function getExternalWalletSignerAddress(): Promise<string | null> {
 
 export function isExternalWalletConnected(): boolean {
   return readConnectedSession() != null;
+}
+
+/**
+ * Arbitrum One — the chain Hyperliquid's own UI signs user actions on, and the
+ * AppKit session's default network, so every WalletConnect request is already
+ * routed under `eip155:42161`.
+ */
+const HL_SIGNING_CAIP_NETWORK = 'eip155:42161' as const;
+const CHAIN_ALIGN_TIMEOUT_MS = 6_000;
+/** Give MetaMask a beat to commit the switch — signing immediately after a
+ * network switch is a known MetaMask-mobile race that still rejects with
+ * "active chainId is X but received Y". */
+const CHAIN_ALIGN_SETTLE_MS = 750;
+
+/**
+ * Move the connected external wallet onto Arbitrum One BEFORE requesting any
+ * Hyperliquid EIP-712 signature.
+ *
+ * Why this is required: MetaMask validates the typed-data `domain.chainId`
+ * against the network selected *inside MetaMask*, while the AppKit provider's
+ * `eth_chainId` only ever reports the dapp-session default. The two can
+ * disagree (e.g. MetaMask left on Ethereum), and there is no way to read
+ * MetaMask's real selection through WalletConnect — so instead of guessing we
+ * issue `wallet_switchEthereumChain` to Arbitrum, which MetaMask auto-approves
+ * for session-approved chains. Best-effort with a timeout: if the wallet app is
+ * closed, the switch stays queued ahead of the signature request and MetaMask
+ * processes both in order when the user opens it.
+ */
+export async function ensureExternalWalletOnHlSigningChain(): Promise<void> {
+  if (!readConnectedSession()) return;
+  try {
+    const switched = await Promise.race([
+      getAppKit()
+        .switchNetwork(HL_SIGNING_CAIP_NETWORK)
+        .then(() => true),
+      new Promise<boolean>((resolve) => {
+        setTimeout(() => resolve(false), CHAIN_ALIGN_TIMEOUT_MS);
+      }),
+    ]);
+    if (switched) {
+      await new Promise((resolve) => setTimeout(resolve, CHAIN_ALIGN_SETTLE_MS));
+    }
+  } catch {
+    // Wallet refused or errored — signing falls back to the mismatch backstop.
+  }
 }
 
 /**

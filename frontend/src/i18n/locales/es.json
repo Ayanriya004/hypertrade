@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "Sin respuesta de la billetera",
     "approveTimeout": "La solicitud de firma puede seguir esperando en tu app de billetera. Ábrela, firma si la solicitud está ahí, luego pulsa el botón de nuevo — las aprobaciones ya firmadas se detectan automáticamente.",
     "approvePendingRetry": "Una solicitud de firma anterior aún está abierta en tu app de billetera. Ábrela, rechaza o completa esa solicitud, luego pulsa Activar de nuevo.",
+    "approveChainSwitchTitle": "Quédate en Arbitrum",
+    "approveChainSwitch": "Mantén la billetera en Arbitrum One e inténtalo de nuevo. Si no aparece nada, desconecta y vuelve a conectar.",
     "empty": "Aún no hay agentes. Crea uno para que el AI opere un activo por ti — tú mantienes el control total.",
     "emptyHeroKicker": "Con modelos líderes",
     "liveDemoBadge": "Demo en vivo",
@@ -876,7 +878,9 @@
       "resume": "Continuar en billetera",
       "rejected": "Firma rechazada. Puedes retomarlo cuando quieras.",
       "sessionExpired": "Sesión de billetera expirada. Reconecta tu billetera e inténtalo de nuevo.",
+      "chainSwitch": "Mantén la billetera en Arbitrum One e inténtalo de nuevo. Si no aparece nada, desconecta y vuelve a conectar.",
       "failed": "No se pudo completar la configuración. Inténtalo de nuevo.",
+      "timeout": "La billetera no devolvió la firma. Si ya firmaste, pulsa continuar. Si una solicitud se quedó colgada, ciérrala y reintenta.",
       "confirming": "Confirmando…",
       "ownerMismatch": "La billetera conectada no coincide con tu cuenta. Reconecta la billetera con la que iniciaste sesión e inténtalo de nuevo.",
       "step": {

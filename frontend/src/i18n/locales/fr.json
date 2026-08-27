@@ -196,6 +196,8 @@
     "approveTimeoutTitle": "Aucune réponse du portefeuille",
     "approveTimeout": "La demande de signature est peut-être encore en attente dans votre application de portefeuille. Ouvrez-la, signez si la demande s'y trouve, puis appuyez à nouveau sur le bouton — les approbations déjà signées sont détectées automatiquement.",
     "approvePendingRetry": "Une demande de signature précédente est toujours ouverte dans votre application de portefeuille. Ouvrez-la, rejetez ou complétez cette demande, puis appuyez à nouveau sur Activer.",
+    "approveChainSwitchTitle": "Restez sur Arbitrum",
+    "approveChainSwitch": "Gardez le portefeuille sur Arbitrum One et réessayez. Si rien n'apparaît, déconnectez puis reconnectez.",
     "empty": "Aucun agent pour l'instant. Créez-en un pour laisser l'AI trader un actif pour vous — vous gardez le contrôle total.",
     "emptyHeroKicker": "Propulsé par des modèles leaders",
     "liveDemoBadge": "Démo en direct",
@@ -876,7 +878,9 @@
       "resume": "Continuer dans le portefeuille",
       "rejected": "Signature refusée. Vous pouvez reprendre à tout moment.",
       "sessionExpired": "Session du portefeuille expirée. Reconnectez votre portefeuille et réessayez.",
+      "chainSwitch": "Gardez le portefeuille sur Arbitrum One et réessayez. Si rien n'apparaît, déconnectez puis reconnectez.",
       "failed": "La configuration n'a pas pu aboutir. Veuillez réessayer.",
+      "timeout": "Le portefeuille n'a pas renvoyé la signature. Si vous avez déjà signé, appuyez sur continuer. Si une demande est bloquée, fermez-la puis réessayez.",
       "confirming": "Confirmation…",
       "ownerMismatch": "Le portefeuille connecté ne correspond pas à votre compte. Reconnectez le portefeuille utilisé pour vous connecter, puis réessayez.",
       "step": {

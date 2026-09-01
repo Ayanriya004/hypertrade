@@ -1,0 +1,8 @@
+{
+  "name": "HyperTrade — AI Trading Agents & Hyperliquid Platform",
+  "description": "Live AI agent trading showcase and Hyperliquid DEX interface featuring multi-model autonomous trading, real-time positions, equity curves, and reasoning logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
